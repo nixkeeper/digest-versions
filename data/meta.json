@@ -1,0 +1,53 @@
+{
+  "caughtUp": 0,
+  "caughtUpRead": 0,
+  "cran": {
+    "annotation": 928,
+    "at": "2026-10-24T04:15:45+00:00",
+    "bioc": 2385,
+    "biocVersion": "3.23",
+    "cran": 25500,
+    "experiment": 434
+  },
+  "emacs": {
+    "at": "2026-10-24T04:15:45+00:00",
+    "gnu": 509,
+    "melpa": 6333,
+    "melpaStable": 3490,
+    "nongnu": 293
+  },
+  "format": 1,
+  "moved": {
+    "asked": 1,
+    "found": 0
+  },
+  "nixpkgs": {
+    "evaluatedAt": "2026-10-22T04:15:35+00:00",
+    "indexedAt": "2026-10-23T16:15:46+00:00",
+    "packages": 150729,
+    "sources": 69991
+  },
+  "outdated": 14559,
+  "outdatedAt": "2026-10-24T04:15:45+00:00",
+  "projects": 119155,
+  "releases": {
+    "at": "2026-10-24T04:15:45+00:00",
+    "evaluatedAt": "2026-10-22T04:15:35+00:00",
+    "packages": 34022,
+    "read": 21558
+  },
+  "requests": 120,
+  "rotation": {
+    "lapAt": "2026-10-21T16:15:45+00:00",
+    "next": "lisp:maiden-commands"
+  },
+  "stackage": {
+    "at": "2026-10-24T04:15:45+00:00",
+    "packages": 3367,
+    "snapshot": "lts-24.64"
+  },
+  "typst": {
+    "at": "2026-10-24T04:15:45+00:00",
+    "packages": 1702
+  }
+}
