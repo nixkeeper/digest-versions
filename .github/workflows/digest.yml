@@ -53,6 +53,10 @@ jobs:
   digest:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    # Python's output as it's printed, not when the run ends: a run cut off
+    # at its time limit then shows where it got to (digest-builds, 2026-10-26).
+    env:
+      PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
