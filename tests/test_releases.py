@@ -159,6 +159,21 @@ class Update(unittest.TestCase):
         self.assertNotIn(
             "movedTo", found["packages"]["python313Packages.azure-search-documents"]
         )
+        # Not found once: not gone yet.
+        self.assertNotIn("gone", found["packages"]["gone"])
+        self.assertEqual(found["gone"], [])
+        self.assertEqual(
+            (found["revision"], found["evaluatedAt"]), ("abc", NOW.isoformat())
+        )
+
+    def test_gone_when_not_found_twice_in_a_row(self):
+        answers = [{"refs": {"nodes": []}}, {"refs": {"nodes": []}}, None]
+        later = NOW + timedelta(hours=12)
+        with tempfile.TemporaryDirectory() as d:
+            self.run_update(d, answers)
+            self.run_update(d, answers, later)
+            with gzip.open(os.path.join(d, releases.FILE), "rt") as f:
+                found = json.load(f)
         self.assertEqual(
             found["packages"]["gone"],
             {
@@ -169,9 +184,24 @@ class Update(unittest.TestCase):
             },
         )
         self.assertEqual(found["gone"], ["someone/gone"])
-        self.assertEqual(
-            (found["revision"], found["evaluatedAt"]), ("abc", NOW.isoformat())
-        )
+
+    def test_a_query_github_fails_makes_nothing_gone(self):
+        # 2026-10-27: "Something went wrong while executing your query", and
+        # every repository of that query null, or left out.
+        tagged = {"refs": {"nodes": [{"name": "v2.4.0"}]}}
+        later = NOW + timedelta(hours=12)
+        with tempfile.TemporaryDirectory() as d:
+            self.run_update(d, [tagged, tagged, tagged])
+            self.run_update(d, [None, None, None], later)
+            with gzip.open(os.path.join(d, releases.FILE), "rt") as f:
+                found = json.load(f)
+            self.assertEqual(found["gone"], [])
+            self.assertEqual(found["packages"]["whisky"]["tag"], "2.4.0")
+            with mock.patch.object(releases.github, "graphql", return_value={}):
+                releases.update(d, later + timedelta(hours=12))
+            with gzip.open(os.path.join(d, releases.FILE), "rt") as f:
+                found = json.load(f)
+        self.assertEqual(found["gone"], [])
 
     def test_archived_and_moved(self):
         answers = [

@@ -39,8 +39,9 @@ What became of the repository, when something did: "archived": true
 "movedTo": its name now, when GitHub answers for nixpkgs' name under
 another (renamed, or moved to another owner; GitHub redirects the old
 name), or "gone": true, with no tag or release, when GitHub doesn't know
-it any more (deleted, or made private). Gone repositories are also listed
-in "gone". A run that fails keeps the last files."""
+it any more (deleted, or made private), two runs in a row. Gone
+repositories are also listed in "gone". A run that fails keeps the last
+files."""
 
 import gzip
 import json
@@ -143,12 +144,18 @@ def query(keys):
     return "query { rateLimit { remaining } " + " ".join(fields) + " }"
 
 
-def read_repos(keys, token, today):
+def read_repos(keys, token, today, before=None):
     """{key: {"tags", "release", "read", "archived"?, "name"?} or {"gone":
     True, "read"}} for those of keys GitHub answered, BATCH a query ("name":
     the repository's name now, when it isn't the key's); stops early when
     the token runs low or GitHub stops answering (the rest wait for the next
-    run)."""
+    run).
+
+    A repository GitHub answers null for is gone only when it was the last
+    read too (before: what the last runs had): a query GitHub fails can
+    answer null for repositories that are there (25 on 2026-10-27, "Something
+    went wrong while executing your query"). The first time, it keeps what it
+    had, marked "missing". One left out of the answer isn't read."""
     found = {}
     in_a_row = 0
     for start in range(0, len(keys), BATCH):
@@ -167,9 +174,19 @@ def read_repos(keys, token, today):
                 break
             continue
         for i, k in enumerate(part):
-            repo = data.get(f"r{i}")
+            if f"r{i}" not in data:
+                continue  # not answered: read again next run
+            repo = data[f"r{i}"]
             if repo is None:
-                found[k] = {"gone": True, "read": today}
+                was = (before or {}).get(k) or {}
+                if was.get("gone") or was.get("missing"):
+                    found[k] = {"gone": True, "read": today}
+                else:
+                    found[k] = {
+                        **was,
+                        "missing": True,
+                        "read": was.get("read") or today,
+                    }
                 continue
             release = (repo.get("latestRelease") or {}).get("tagName")
             # GitHub answers for an old name with the repository it
@@ -298,7 +315,7 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
     state.pop("rotation", None)  # the weekly rotation's place, before
     chosen = due(keys, repos, outdated_keys(state, outdated_attrs))
     print(f"Reading {len(chosen):,} repositories on GitHub...", file=sys.stderr)
-    read_now = read_repos(chosen, token, now.date().isoformat())
+    read_now = read_repos(chosen, token, now.date().isoformat(), repos)
     repos.update(read_now)
     write_json(directory, STATE, {"format": FORMAT, **state})
     packages = {}
