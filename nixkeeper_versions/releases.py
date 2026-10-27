@@ -34,8 +34,13 @@ each package's version in nixpkgs, the newest version among its
 repository's tags that match its scheme ("tag"), and its latest release's
 when that matches ("release"; what nixkeeper prefers when there is one: a
 tag alone may not be released yet), with when the repository was read.
-A repository GitHub doesn't know any more is in "gone". A run that fails
-keeps the last files."""
+What became of the repository, when something did: "archived": true
+(read-only, its owner's way of saying it's no longer worked on),
+"movedTo": its name now, when GitHub answers for nixpkgs' name under
+another (renamed, or moved to another owner; GitHub redirects the old
+name), or "gone": true, with no tag or release, when GitHub doesn't know
+it any more (deleted, or made private). Gone repositories are also listed
+in "gone". A run that fails keeps the last files."""
 
 import gzip
 import json
@@ -130,6 +135,7 @@ def query(keys):
         filtered = f", query: {json.dumps(start)}" if len(start) > 1 else ""
         fields.append(
             f"r{i}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{"
+            " nameWithOwner isArchived"
             f' refs(refPrefix: "refs/tags/", first: {TAGS}{filtered},'
             " orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) { nodes { name } }"
             " latestRelease { tagName } }"
@@ -138,9 +144,11 @@ def query(keys):
 
 
 def read_repos(keys, token, today):
-    """{key: {"tags", "release", "read"} or {"gone": True, "read"}} for those
-    of keys GitHub answered, BATCH a query; stops early when the token runs
-    low or GitHub stops answering (the rest wait for the next run)."""
+    """{key: {"tags", "release", "read", "archived"?, "name"?} or {"gone":
+    True, "read"}} for those of keys GitHub answered, BATCH a query ("name":
+    the repository's name now, when it isn't the key's); stops early when
+    the token runs low or GitHub stops answering (the rest wait for the next
+    run)."""
     found = {}
     in_a_row = 0
     for start in range(0, len(keys), BATCH):
@@ -164,11 +172,17 @@ def read_repos(keys, token, today):
                 found[k] = {"gone": True, "read": today}
                 continue
             release = (repo.get("latestRelease") or {}).get("tagName")
+            # GitHub answers for an old name with the repository it
+            # redirects to; a name only cased differently is the same one.
+            name = repo.get("nameWithOwner")
+            moved = name and name.lower() != k.split("|", 1)[0].lower()
             found[k] = {
                 "tags": [
                     n["name"] for n in (repo.get("refs") or {}).get("nodes") or []
                 ],
                 **({"release": release} if release else {}),
+                **({"archived": True} if repo.get("isArchived") else {}),
+                **({"name": name} if moved else {}),
                 "read": today,
             }
         if (data.get("rateLimit") or {}).get("remaining", MIN_POINTS) < MIN_POINTS:
@@ -290,12 +304,22 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
     packages = {}
     for attr, check in sorted(checks.items()):
         repo = repos.get(key(check))
-        if not repo or repo.get("gone"):
+        if not repo:
+            continue
+        if repo.get("gone"):
+            packages[attr] = {
+                "repo": check["repo"],
+                "version": check["version"],
+                "gone": True,
+                "read": repo["read"],
+            }
             continue
         packages[attr] = {
             "repo": check["repo"],
             "version": check["version"],
             **newest(check, repo),
+            **({"archived": True} if repo.get("archived") else {}),
+            **({"movedTo": repo["name"]} if repo.get("name") else {}),
             "read": repo["read"],
         }
     gone = sorted({k.split("|", 1)[0] for k, r in repos.items() if r.get("gone")})
@@ -311,9 +335,11 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
             "gone": gone,
         },
     )
+    archived = sum(1 for p in packages.values() if p.get("archived"))
+    moved = sum(1 for p in packages.values() if p.get("movedTo"))
     print(
         f"  read {len(read_now):,}; {len(packages):,} packages, {len(gone):,} "
-        "repositories gone",
+        f"repositories gone; {archived:,} packages archived, {moved:,} moved",
         file=sys.stderr,
     )
     return {

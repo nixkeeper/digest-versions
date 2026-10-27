@@ -120,7 +120,12 @@ On the `data` branch:
   match the package's tag scheme (as nixkeeper's update checks work it out
   from its source: `v2.4.0` for `v2.3.5`), by Repology's version order;
   `release` its latest release's, when that matches (drafts and
-  pre-releases left out); `read` when the repository was read. Where each
+  pre-releases left out); `read` when the repository was read. What became
+  of the repository, when something did: `archived` (true: read-only, its
+  owner's way of saying it's no longer worked on), `movedTo` (its name now,
+  when GitHub answers for nixpkgs' name under another: renamed, or moved to
+  another owner), or `gone` (true, with no `tag` or `release`: GitHub doesn't
+  know it any more; also listed in the top-level `gone`). Where each
   package comes from is evaluated from nixpkgs weekly (with Nix and
   nixkeeper's own code, this flake's input: about a minute); each run reads
   every repository (about 21,400 on 2026-10-11, an hour), so a release
