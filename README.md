@@ -124,8 +124,9 @@ On the `data` branch:
   of the repository, when something did: `archived` (true: read-only, its
   owner's way of saying it's no longer worked on), `movedTo` (its name now,
   when GitHub answers for nixpkgs' name under another: renamed, or moved to
-  another owner), or `gone` (true, with no `tag` or `release`: GitHub doesn't
-  know it any more; also listed in the top-level `gone`). Where each
+  another owner), or `gone` (true, with no `tag` or `release`: GitHub didn't
+  know it two runs in a row, as one query GitHub fails can answer nothing
+  for repositories that are there; also listed in the top-level `gone`). Where each
   package comes from is evaluated from nixpkgs weekly (with Nix and
   nixkeeper's own code, this flake's input: about a minute); each run reads
   every repository (about 21,400 on 2026-10-11, an hour), so a release
