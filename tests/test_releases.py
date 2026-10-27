@@ -124,8 +124,13 @@ class Update(unittest.TestCase):
     def test_evaluated_read_and_written(self):
         answers = [
             # Sorted keys: Azure..., Whisky..., someone/gone.
-            {"refs": {"nodes": [{"name": "azure-search-documents_11.6.0"}]}},
             {
+                # Only cased differently: the same repository.
+                "nameWithOwner": "azure/azure-sdk-for-python",
+                "refs": {"nodes": [{"name": "azure-search-documents_11.6.0"}]},
+            },
+            {
+                "nameWithOwner": "Whisky-App/Whisky",
                 "refs": {"nodes": [{"name": "v2.4.0"}]},
                 "latestRelease": {"tagName": "v2.4.0"},
             },
@@ -134,7 +139,7 @@ class Update(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             meta, evaluated = self.run_update(d, answers)
             self.assertTrue(evaluated)
-            self.assertEqual((meta["packages"], meta["read"]), (2, 3))
+            self.assertEqual((meta["packages"], meta["read"]), (3, 3))
             with gzip.open(os.path.join(d, releases.FILE), "rt") as f:
                 found = json.load(f)
         self.assertEqual(
@@ -151,10 +156,46 @@ class Update(unittest.TestCase):
             found["packages"]["python313Packages.azure-search-documents"]["tag"],
             "11.6.0",
         )
+        self.assertNotIn(
+            "movedTo", found["packages"]["python313Packages.azure-search-documents"]
+        )
+        self.assertEqual(
+            found["packages"]["gone"],
+            {
+                "repo": "someone/gone",
+                "version": "1.0",
+                "gone": True,
+                "read": "2026-10-08",
+            },
+        )
         self.assertEqual(found["gone"], ["someone/gone"])
         self.assertEqual(
             (found["revision"], found["evaluatedAt"]), ("abc", NOW.isoformat())
         )
+
+    def test_archived_and_moved(self):
+        answers = [
+            {"nameWithOwner": "Azure/azure-sdk-for-python", "isArchived": True},
+            # GitHub answers for the old name with where it redirects.
+            {"nameWithOwner": "Whisky-Org/Whisky", "refs": {"nodes": []}},
+            {"nameWithOwner": "someone/gone", "isArchived": False},
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            self.run_update(d, answers)
+            with gzip.open(os.path.join(d, releases.FILE), "rt") as f:
+                packages = json.load(f)["packages"]
+        azure = packages["python313Packages.azure-search-documents"]
+        self.assertEqual((azure.get("archived"), azure.get("movedTo")), (True, None))
+        whisky = packages["whisky"]
+        self.assertEqual(
+            (whisky.get("archived"), whisky.get("movedTo")), (None, "Whisky-Org/Whisky")
+        )
+        self.assertNotIn("archived", packages["gone"])
+        self.assertNotIn("gone", packages["gone"])
+
+    def test_query_asks_name_and_archived(self):
+        q = releases.query(["Whisky-App/Whisky|v"])
+        self.assertIn("nameWithOwner isArchived", q)
 
     def test_evaluated_weekly(self):
         answers = [{"refs": {"nodes": []}}] * 3
