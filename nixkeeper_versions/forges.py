@@ -96,15 +96,21 @@ def token_header(host):
 def get_json(url):
     """url's JSON, paced per site; None on a 404.
 
-    A request the token is refused for (403) is asked again without it: a
-    token can be missing a permission a project asks for (a fine-grained
-    one, on gitlab.com's gajim projects, 2026-10-28) where anyone may read.
+    A request the token is refused for (403) is asked again without it, at
+    once rather than after http's retries: a token can be missing a
+    permission a project asks for (a fine-grained one, on gitlab.com's gajim
+    projects, 2026-10-28) where anyone may read.
     """
     pace(url)
     host = urllib.parse.urlsplit(url).netloc.lower()
     token = token_header(host)
     try:
-        body = http.get(url, accept="application/json", headers=token)
+        body = http.get(
+            url,
+            accept="application/json",
+            headers=token,
+            fail_on=(403,) if token else (),
+        )
     except urllib.error.HTTPError as e:
         if e.code != 403 or not token:
             raise
@@ -122,6 +128,10 @@ def refusal(err):
     try:
         answer = json.loads(err.read())
     except (OSError, ValueError, AttributeError):
+        return ""
+    finally:
+        err.close()
+    if not isinstance(answer, dict):
         return ""
     return str(answer.get("error_description") or answer.get("message") or "")[:200]
 

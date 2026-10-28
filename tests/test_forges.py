@@ -184,9 +184,10 @@ class Forges(unittest.TestCase):
         refused = json.dumps({"error_description": "Access denied: Project: Read"})
         asked = []
 
-        def get(url, accept=None, headers=None, **_):
+        def get(url, accept=None, headers=None, fail_on=()):
             asked.append(bool(headers))
             if headers:
+                self.assertEqual(fail_on, (403,))  # no retries for a refusal
                 raise urllib.error.HTTPError(
                     url, 403, "Forbidden", {}, io.BytesIO(refused.encode())
                 )
