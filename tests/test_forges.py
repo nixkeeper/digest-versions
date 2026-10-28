@@ -147,6 +147,30 @@ class Forges(unittest.TestCase):
             },
         )
 
+    def test_the_token_goes_to_gitlab_com_only(self):
+        sent = {}
+
+        def get(url, accept=None, headers=None, **_):
+            sent[url.split("/")[2]] = headers
+            return "{}"
+
+        with (
+            mock.patch.dict("os.environ", {"GITLAB_TOKEN": "t"}),
+            mock.patch.object(forges.http, "get", side_effect=get),
+        ):
+            for host in ("gitlab.com", "gitlab.freedesktop.org", "codeberg.org"):
+                forges.get_json(f"https://{host}/api/x")
+        self.assertEqual(
+            sent,
+            {
+                "gitlab.com": {"Authorization": "Bearer t"},
+                "gitlab.freedesktop.org": {},
+                "codeberg.org": {},
+            },
+        )
+        with mock.patch.dict("os.environ", clear=True):
+            self.assertEqual(forges.token_header("gitlab.com"), {})
+
     def test_a_site_that_stops_answering_waits(self):
         keys = [f"forgejo:codeberg.org/o/r{i}|" for i in range(5)]
         rest = {
