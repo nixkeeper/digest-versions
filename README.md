@@ -132,11 +132,14 @@ On the `data` branch:
   `elsewhere` has the same for packages fetched from a tag on a GitLab
   instance (gitlab.com, freedesktop, GNOME, KDE, Debian's salsa) or on
   Codeberg, about 1,350, with their `forge` (`gitlab`, `forgejo`) and
-  `repo` as `host/path` (`movedTo` too); apart from `packages` because
+  `repo` as `host/path` (`movedTo` too; a GitLab project waiting to be
+  deleted, which GitLab renames `...-deletion_scheduled-<id>`, counts as
+  gone); apart from `packages` because
   nixkeeper read those as GitHub's before it knew of others. They're read
   without a token (gitlab.com with `GITLAB_TOKEN` when set: `read_api` on
   an account in no group or project, so its limits are that account's, not
-  the runner's shared address's), each site at most once a second, the
+  the runner's shared address's; a request the token is refused for is
+  asked again without it), each site at most once a second, the
   sites side by side: on GitLab a GraphQL query per 25 projects (archived, latest release, path; not on GNOME,
   which refuses GraphQL that isn't a browser's, so it has no `archived`),
   then each project's tags; on Codeberg each repository, its tags and its
