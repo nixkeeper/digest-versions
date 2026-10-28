@@ -139,7 +139,7 @@ On the `data` branch:
   without a token (gitlab.com with `GITLAB_TOKEN` when set: `read_api` on
   an account in no group or project, so its limits are that account's, not
   the runner's shared address's; a request the token is refused for is
-  asked again without it), each site at most once a second, the
+  asked again without it, at once), each site at most once a second, the
   sites side by side: on GitLab a GraphQL query per 25 projects (archived, latest release, path; not on GNOME,
   which refuses GraphQL that isn't a browser's, so it has no `archived`),
   then each project's tags; on Codeberg each repository, its tags and its
