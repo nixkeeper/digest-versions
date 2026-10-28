@@ -1,7 +1,9 @@
 import io
 import json
+import sys
 import threading
 import unittest
+import urllib.error
 from unittest import mock
 
 from nixkeeper_versions import forges
@@ -170,6 +172,43 @@ class Forges(unittest.TestCase):
         )
         with mock.patch.dict("os.environ", clear=True):
             self.assertEqual(forges.token_header("gitlab.com"), {})
+
+    def test_a_project_waiting_to_be_deleted_is_gone(self):
+        # GitLab redirects its old path to a "-deletion_scheduled-" one.
+        old = "https://gitlab.com/api/v4/projects/o%2Fr"
+        self.serve({old: {"path_with_namespace": "o/r-deletion_scheduled-1"}})
+        found = forges.read(["gitlab:gitlab.com/o/r|"], TODAY)
+        self.assertIsNone(found["gitlab:gitlab.com/o/r|"])
+
+    def test_a_refused_token_asks_again_without_it(self):
+        refused = json.dumps({"error_description": "Access denied: Project: Read"})
+        asked = []
+
+        def get(url, accept=None, headers=None, **_):
+            asked.append(bool(headers))
+            if headers:
+                raise urllib.error.HTTPError(
+                    url, 403, "Forbidden", {}, io.BytesIO(refused.encode())
+                )
+            return '{"path_with_namespace": "gajim/gajim"}'
+
+        with (
+            mock.patch.dict("os.environ", {"GITLAB_TOKEN": "t"}),
+            mock.patch.object(forges.http, "get", side_effect=get),
+        ):
+            answer = forges.get_json("https://gitlab.com/api/v4/projects/gajim%2Fgajim")
+        self.assertEqual(answer, {"path_with_namespace": "gajim/gajim"})
+        self.assertEqual(asked, [True, False])
+        self.assertIn("Access denied: Project: Read", sys.stderr.getvalue())
+
+    def test_refused_without_a_token_fails(self):
+        err = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b"{}"))
+        with (
+            mock.patch.dict("os.environ", clear=True),
+            mock.patch.object(forges.http, "get", side_effect=err),
+            self.assertRaises(urllib.error.HTTPError),
+        ):
+            forges.get_json("https://gitlab.com/api/v4/projects/o%2Fr")
 
     def test_a_site_that_stops_answering_waits(self):
         keys = [f"forgejo:codeberg.org/o/r{i}|" for i in range(5)]

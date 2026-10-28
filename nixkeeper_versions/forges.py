@@ -17,6 +17,7 @@ with a token when there's one (GITLAB_TOKEN).
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -46,6 +47,9 @@ GRAPHQL_TIMEOUT = 20
 # 25 minutes, 2026-10-28). The token is read_api on an account in no group
 # or project: it reads only what anyone can.
 TOKEN_HOSTS = frozenset({"gitlab.com"})
+# The path GitLab gives a project waiting to be deleted (it redirects the
+# old path there): as good as gone (gitlab.com's pizarra-gtk, 2026-10-28).
+DELETING = re.compile(r"-deletion_scheduled-\d+$")
 # Stop asking a site after so many failures in a row: the rest wait for the
 # next run.
 MAX_FAILURES_IN_A_ROW = 3
@@ -90,11 +94,36 @@ def token_header(host):
 
 
 def get_json(url):
-    """url's JSON, paced per site; None on a 404."""
+    """url's JSON, paced per site; None on a 404.
+
+    A request the token is refused for (403) is asked again without it: a
+    token can be missing a permission a project asks for (a fine-grained
+    one, on gitlab.com's gajim projects, 2026-10-28) where anyone may read.
+    """
     pace(url)
     host = urllib.parse.urlsplit(url).netloc.lower()
-    body = http.get(url, accept="application/json", headers=token_header(host))
+    token = token_header(host)
+    try:
+        body = http.get(url, accept="application/json", headers=token)
+    except urllib.error.HTTPError as e:
+        if e.code != 403 or not token:
+            raise
+        print(
+            f"  {host}: the token was refused ({refusal(e)}): asked without it",
+            file=sys.stderr,
+        )
+        pace(url)
+        body = http.get(url, accept="application/json")
     return None if body is None else json.loads(body)
+
+
+def refusal(err):
+    """What a refused request's answer says, shortened; "" when unreadable."""
+    try:
+        answer = json.loads(err.read())
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return str(answer.get("error_description") or answer.get("message") or "")[:200]
 
 
 def graphql(host, query):
@@ -161,6 +190,10 @@ def gitlab(host, keys, today):
                 # Left out of the batch, or no batch: REST says where it is.
                 answer = get_json(api)
                 if answer is None:
+                    found[k] = None
+                    in_a_row = 0
+                    continue
+                if DELETING.search(answer["path_with_namespace"]):
                     found[k] = None
                     in_a_row = 0
                     continue
