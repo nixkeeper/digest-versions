@@ -14,8 +14,9 @@ name: "Digest: Repology's nixpkgs projects"
 # where packages come from (Nix, about a minute), each run every one of their
 # repositories, 25 a GraphQL query (about 860 points, an hour), and those
 # on GitLab instances and Codeberg (about 1,150 and 320, each site asked at
-# most once a second, no token: about 40 minutes more). The run takes about
-# two hours, under its limit of three. The data branch is main plus one commit with the
+# most once a second, no token, the sites side by side: about 16 minutes
+# more, Codeberg's). The run takes about 85 minutes, under its limit of
+# three hours. The data branch is main plus one commit with the
 # digest (scripts/data-branch.sh).
 
 on:

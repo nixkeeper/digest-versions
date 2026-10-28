@@ -10,15 +10,18 @@ instance without it is asked by REST too, which redirects an old path to
 the project, so its path now says whether it was renamed. On Forgejo, one
 REST request each for the repository (archived, its name now: an old name
 redirects to the new one), its tags and its latest release. Each site is
-asked at most once every SITE_PAUSE_SECONDS (nixkeeper's http.pace), and
-every request names nixkeeper (its User-Agent).
+asked at most once every SITE_PAUSE_SECONDS (pace), the sites side by side,
+and every request names nixkeeper (its User-Agent).
 """
 
 import json
 import sys
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from nixkeeper import config as nixkeeper_config
 from nixkeeper.sources import http
@@ -32,11 +35,36 @@ GRAPHQL_BATCH = 25
 # (gitlab.gnome.org, 406, 2026-10-28): REST only, without "archived" (REST
 # leaves it out without a token).
 NO_GRAPHQL = frozenset({"gitlab.gnome.org"})
+# Seconds a GraphQL query may take: one that doesn't answer in time leaves
+# its projects to REST (gitlab.com timed out at 60 s once, 2026-10-28).
+GRAPHQL_TIMEOUT = 20
 # Stop asking a site after so many failures in a row: the rest wait for the
 # next run.
 MAX_FAILURES_IN_A_ROW = 3
 # The errors a request can end with.
 FAILED = (urllib.error.URLError, OSError, ValueError, KeyError, TypeError)
+
+
+# When each site was last asked, and a lock per site. Process-wide on
+# purpose: the pause is between any two requests to a site. One lock per
+# site, so a site's wait doesn't hold up another's (nixkeeper's http.pace
+# waits holding one lock for every site).
+_last_asked = {}
+_site_locks = {}
+_locks_lock = threading.Lock()
+
+
+def pace(url):
+    """Wait so url's site is asked at most once every SITE_PAUSE_SECONDS."""
+    site = urllib.parse.urlsplit(url).netloc.lower()
+    with _locks_lock:
+        lock = _site_locks.setdefault(site, threading.Lock())
+    with lock:
+        pause = nixkeeper_config.SITE_PAUSE_SECONDS
+        wait = _last_asked.get(site, float("-inf")) + pause - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_asked[site] = time.monotonic()
 
 
 def split(key):
@@ -49,7 +77,7 @@ def split(key):
 
 def get_json(url):
     """url's JSON, paced per site; None on a 404."""
-    http.pace(url)
+    pace(url)
     body = http.get(url, accept="application/json")
     return None if body is None else json.loads(body)
 
@@ -57,7 +85,7 @@ def get_json(url):
 def graphql(host, query):
     """A GitLab instance's answer to a GraphQL query, paced; its data."""
     url = f"https://{host}/api/graphql"
-    http.pace(url)
+    pace(url)
     request = urllib.request.Request(
         url,
         data=json.dumps({"query": query}).encode(),
@@ -67,7 +95,7 @@ def graphql(host, query):
             "Accept": "application/json",
         },
     )
-    with urllib.request.urlopen(request, timeout=60) as resp:
+    with urllib.request.urlopen(request, timeout=GRAPHQL_TIMEOUT) as resp:
         return json.loads(resp.read()).get("data") or {}
 
 
@@ -201,15 +229,22 @@ def repo(host, path, tags, release, archived, now_path, today):
 
 def read(keys, today):
     """{key: repo, or None when its forge doesn't know it} for keys on
-    other forges ("gitlab:..." and "forgejo:..."), host by host; those not
-    read this run are left out."""
+    other forges ("gitlab:..." and "forgejo:..."), the sites side by side
+    (each still paced on its own); those not read this run are left out."""
     by_site = {}
     for k in keys:
         forge, host, _, _ = split(k)
         by_site.setdefault((forge, host), []).append(k)
-    found = {}
-    for (forge, host), site_keys in sorted(by_site.items()):
+
+    def site(item):
+        (forge, host), site_keys = item
         print(f"  {host}: {len(site_keys):,} repositories...", file=sys.stderr)
         reader = gitlab if forge == "gitlab" else forgejo
-        found.update(reader(host, site_keys, today))
+        return reader(host, site_keys, today)
+
+    found = {}
+    if by_site:
+        with ThreadPoolExecutor(max_workers=len(by_site)) as pool:
+            for answers in pool.map(site, sorted(by_site.items())):
+                found.update(answers)
     return found

@@ -134,7 +134,7 @@ On the `data` branch:
   Codeberg, about 1,350, with their `forge` (`gitlab`, `forgejo`) and
   `repo` as `host/path` (`movedTo` too); apart from `packages` because
   nixkeeper read those as GitHub's before it knew of others. They're read
-  without a token, each site at most once a second: on GitLab a GraphQL
+  without a token, each site at most once a second, the sites side by side: on GitLab a GraphQL
   query per 25 projects (archived, latest release, path; not on GNOME,
   which refuses GraphQL that isn't a browser's, so it has no `archived`),
   then each project's tags; on Codeberg each repository, its tags and its

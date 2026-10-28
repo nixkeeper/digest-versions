@@ -1,5 +1,6 @@
 import io
 import json
+import threading
 import unittest
 from unittest import mock
 
@@ -12,7 +13,7 @@ class Forges(unittest.TestCase):
     def setUp(self):
         for patcher in (
             mock.patch("sys.stderr", io.StringIO()),
-            mock.patch.object(forges.http, "pace"),
+            mock.patch.object(forges, "pace"),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -155,6 +156,47 @@ class Forges(unittest.TestCase):
         asked = self.serve(rest)
         self.assertEqual(forges.read(keys, TODAY), {})  # none read: not gone
         self.assertEqual(len(asked), forges.MAX_FAILURES_IN_A_ROW)
+
+
+class Pace(unittest.TestCase):
+    def test_a_site_waits_for_itself_not_for_another(self):
+        slept = []
+        clock = iter([0.0, 0.0, 0.2, 0.2, 0.3, 0.3])
+        with (
+            mock.patch.object(
+                forges.time, "monotonic", side_effect=lambda: next(clock)
+            ),
+            mock.patch.object(forges.time, "sleep", side_effect=slept.append),
+            mock.patch.dict(forges._last_asked, clear=True),
+        ):
+            forges.pace("https://gitlab.com/a")  # first: no wait
+            forges.pace("https://codeberg.org/a")  # another site: no wait
+            forges.pace("https://gitlab.com/b")  # 0.3 s after its last
+        self.assertEqual(len(slept), 1)
+        self.assertAlmostEqual(
+            slept[0], forges.nixkeeper_config.SITE_PAUSE_SECONDS - 0.3
+        )
+
+    def test_sites_side_by_side(self):
+        # Two sites that each take a while: read at the same time.
+        started = []
+        both = threading.Barrier(2, timeout=5)
+
+        def reader(host, keys, today):
+            started.append(host)
+            both.wait()  # only returns once both sites are being read
+            return {k: None for k in keys}
+
+        with (
+            mock.patch("sys.stderr", io.StringIO()),
+            mock.patch.object(forges, "gitlab", side_effect=reader),
+            mock.patch.object(forges, "forgejo", side_effect=reader),
+        ):
+            found = forges.read(
+                ["gitlab:gitlab.com/a/b|", "forgejo:codeberg.org/c/d|"], TODAY
+            )
+        self.assertEqual(sorted(started), ["codeberg.org", "gitlab.com"])
+        self.assertEqual(len(found), 2)
 
 
 if __name__ == "__main__":
