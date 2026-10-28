@@ -101,7 +101,7 @@ class Update(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def run_update(self, d, answers, now=NOW, outdated=()):
+    def run_update(self, d, answers, now=NOW, outdated=(), checks=CHECKS):
         def graphql(token, query, variables):
             self.assertEqual(token, "token")
             data = {"rateLimit": {"remaining": 900}}
@@ -115,7 +115,7 @@ class Update(unittest.TestCase):
             mock.patch.object(
                 releases.nixpkgs, "load_index", return_value={a: {} for a in CHECKS}
             ),
-            mock.patch.object(releases, "evaluate", return_value=CHECKS) as evaluated,
+            mock.patch.object(releases, "evaluate", return_value=checks) as evaluated,
             mock.patch.object(releases.github, "graphql", side_effect=graphql),
         ):
             meta = releases.update(d, now, outdated)
@@ -259,6 +259,91 @@ class Update(unittest.TestCase):
             self.assertEqual(
                 releases.read(d)["packages"]["whisky"]["read"], "2026-10-08"
             )
+
+    def test_other_forges_written_apart_and_gone_after_two_runs(self):
+        # Packages from GitLab instances and Codeberg: read through
+        # forges.py, written apart from GitHub's ("elsewhere").
+        lab = {
+            "forge": "gitlab",
+            "repo": "gitlab.com/expliot_framework/expliot",
+            "tags": r"^([0-9]+(?:[.][0-9]+)+)$",
+            "version": "0.11.0",
+        }
+        berg = {
+            "forge": "forgejo",
+            "repo": "codeberg.org/o/gone",
+            "tags": r"^([0-9]+(?:[.][0-9]+)+)$",
+            "version": "1.0",
+        }
+        checks = {**CHECKS, "expliot": lab, "gone-berg": berg}
+        answers = {
+            "gitlab:gitlab.com/expliot_framework/expliot|": {
+                "tags": ["0.11.1"],
+                "archived": True,
+                "read": "2026-10-08",
+            },
+            "forgejo:codeberg.org/o/gone|": None,
+        }
+        github = [{"refs": {"nodes": []}}] * 3
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.object(releases.forges, "read", return_value=answers),
+        ):
+            self.run_update(d, github, checks=checks)
+            first = releases.read(d)
+            self.run_update(d, github, NOW + timedelta(hours=12), checks=checks)
+            second = releases.read(d)
+        self.assertEqual(
+            first["elsewhere"]["expliot"],
+            {
+                "forge": "gitlab",
+                "repo": "gitlab.com/expliot_framework/expliot",
+                "version": "0.11.0",
+                "tag": "0.11.1",
+                "archived": True,
+                "read": "2026-10-08",
+            },
+        )
+        self.assertNotIn("expliot", first["packages"])  # GitHub's only
+        self.assertNotIn("gone", first["elsewhere"]["gone-berg"])  # not found once
+        self.assertTrue(second["elsewhere"]["gone-berg"]["gone"])  # twice
+        self.assertNotIn("codeberg.org/o/gone", second["gone"])  # GitHub's list
+
+    def test_a_stale_release_elsewhere_is_left_out(self):
+        # KDE's tellico, 2026-10-28: its latest release v3.5.5, its tags v4.3.
+        kde = {
+            "forge": "gitlab",
+            "repo": "invent.kde.org/office/tellico",
+            "tags": r"^v([0-9]+(?:[.][0-9]+)+)$",
+            "version": "4.2.2",
+        }
+        answers = {
+            "gitlab:invent.kde.org/office/tellico|v": {
+                "tags": ["v4.3", "v4.2.2"],
+                "release": "v3.5.5",
+                "read": "2026-10-08",
+            }
+        }
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.object(releases.forges, "read", return_value=answers),
+        ):
+            self.run_update(
+                d, [{"refs": {"nodes": []}}] * 3, checks={**CHECKS, "tellico": kde}
+            )
+            entry = releases.read(d)["elsewhere"]["tellico"]
+        self.assertEqual((entry["tag"], entry.get("release")), ("4.3", None))
+
+    def test_state_from_before_evaluated_again(self):
+        # Checks made before other forges counted: evaluated at once.
+        with tempfile.TemporaryDirectory() as d:
+            releases.write_json(
+                d,
+                releases.STATE,
+                {"format": 1, "checks": CHECKS, "evaluatedAt": NOW.isoformat()},
+            )
+            _, evaluated = self.run_update(d, [{"refs": {"nodes": []}}] * 3)
+        self.assertTrue(evaluated)
 
 
 if __name__ == "__main__":

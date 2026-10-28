@@ -113,6 +113,8 @@ On the `data` branch:
   {"format": 1, "fetchedAt": "...", "evaluatedAt": "...", "revision": "...",
    "packages": {"whisky": {"repo": "Whisky-App/Whisky", "version": "2.3.5",
                            "tag": "2.4.0", "release": "2.4.0", "read": "2026-10-08"}, ...},
+   "elsewhere": {"tellico": {"forge": "gitlab", "repo": "invent.kde.org/office/tellico",
+                             "version": "4.2.2", "tag": "4.3", "read": "2026-10-28"}, ...},
    "gone": ["owner/repo", ...]}
   ```
 
@@ -126,7 +128,18 @@ On the `data` branch:
   when GitHub answers for nixpkgs' name under another: renamed, or moved to
   another owner), or `gone` (true, with no `tag` or `release`: GitHub didn't
   know it two runs in a row, as one query GitHub fails can answer nothing
-  for repositories that are there; also listed in the top-level `gone`). Where each
+  for repositories that are there; also listed in the top-level `gone`).
+  `elsewhere` has the same for packages fetched from a tag on a GitLab
+  instance (gitlab.com, freedesktop, GNOME, KDE, Debian's salsa) or on
+  Codeberg, about 1,350, with their `forge` (`gitlab`, `forgejo`) and
+  `repo` as `host/path` (`movedTo` too); apart from `packages` because
+  nixkeeper read those as GitHub's before it knew of others. They're read
+  without a token, each site at most once a second: on GitLab a GraphQL
+  query per 25 projects (archived, latest release, path; not on GNOME,
+  which refuses GraphQL that isn't a browser's, so it has no `archived`),
+  then each project's tags; on Codeberg each repository, its tags and its
+  latest release. A release older than nixpkgs' version is left out there
+  (one nobody updated: KDE's tellico), so the tags decide. Where each
   package comes from is evaluated from nixpkgs weekly (with Nix and
   nixkeeper's own code, this flake's input: about a minute); each run reads
   every repository (about 21,400 on 2026-10-11, an hour), so a release

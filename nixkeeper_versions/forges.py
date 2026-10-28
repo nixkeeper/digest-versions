@@ -1,0 +1,215 @@
+"""Other forges than GitHub: GitLab instances and Forgejo (Codeberg).
+
+For each repository: its newest tags, its latest release, whether it's
+archived, and its name now; the same as releases.py reads from GitHub,
+with no token. A GitLab instance answers a batch of projects in one
+GraphQL query (archived, latest release, path), except those that refuse
+it (NO_GRAPHQL); then each project's tags in one REST request. One the
+batch leaves out (renamed: GraphQL doesn't follow an old path) or on an
+instance without it is asked by REST too, which redirects an old path to
+the project, so its path now says whether it was renamed. On Forgejo, one
+REST request each for the repository (archived, its name now: an old name
+redirects to the new one), its tags and its latest release. Each site is
+asked at most once every SITE_PAUSE_SECONDS (nixkeeper's http.pace), and
+every request names nixkeeper (its User-Agent).
+"""
+
+import json
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from nixkeeper import config as nixkeeper_config
+from nixkeeper.sources import http
+
+# The tags read per repository: the newest, by version on GitLab, by
+# creation on Forgejo.
+TAGS = 100
+# Projects per GitLab GraphQL query.
+GRAPHQL_BATCH = 25
+# GitLab instances whose GraphQL refuses requests that aren't a browser's
+# (gitlab.gnome.org, 406, 2026-10-28): REST only, without "archived" (REST
+# leaves it out without a token).
+NO_GRAPHQL = frozenset({"gitlab.gnome.org"})
+# Stop asking a site after so many failures in a row: the rest wait for the
+# next run.
+MAX_FAILURES_IN_A_ROW = 3
+# The errors a request can end with.
+FAILED = (urllib.error.URLError, OSError, ValueError, KeyError, TypeError)
+
+
+def split(key):
+    """(forge, host, path, prefix) of a key: "gitlab:host/path|prefix"."""
+    where, prefix = key.split("|", 1)
+    forge, repo = where.split(":", 1)
+    host, path = repo.split("/", 1)
+    return forge, host, path, prefix
+
+
+def get_json(url):
+    """url's JSON, paced per site; None on a 404."""
+    http.pace(url)
+    body = http.get(url, accept="application/json")
+    return None if body is None else json.loads(body)
+
+
+def graphql(host, query):
+    """A GitLab instance's answer to a GraphQL query, paced; its data."""
+    url = f"https://{host}/api/graphql"
+    http.pace(url)
+    request = urllib.request.Request(
+        url,
+        data=json.dumps({"query": query}).encode(),
+        headers={
+            "User-Agent": nixkeeper_config.user_agent(),
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=60) as resp:
+        return json.loads(resp.read()).get("data") or {}
+
+
+def gitlab_batch(host, paths):
+    """{path in lowercase: {"path", "archived", "release"?}} of the paths
+    GraphQL answers for (a renamed project's old path it leaves out)."""
+    found = {}
+    for start in range(0, len(paths), GRAPHQL_BATCH):
+        part = paths[start : start + GRAPHQL_BATCH]
+        query = (
+            f"{{ projects(fullPaths: {json.dumps(part)}) {{ nodes {{ fullPath "
+            "archived releases(first: 1, sort: RELEASED_AT_DESC) { nodes { "
+            "tagName upcomingRelease } } } } }"
+        )
+        try:
+            data = graphql(host, query)
+        except FAILED as e:
+            print(f"  {host} GraphQL: {e}", file=sys.stderr)
+            continue
+        for node in ((data.get("projects") or {}).get("nodes")) or []:
+            releases = (node.get("releases") or {}).get("nodes") or []
+            release = next(
+                (r["tagName"] for r in releases if not r.get("upcomingRelease")), None
+            )
+            found[node["fullPath"].lower()] = {
+                "path": node["fullPath"],
+                "archived": bool(node.get("archived")),
+                **({"release": release} if release else {}),
+            }
+    return found
+
+
+def gitlab(host, keys, today):
+    """{key: repo, or None when the instance doesn't know it} for keys on a
+    GitLab instance; those not read are left out."""
+    batch = {}
+    if host not in NO_GRAPHQL:
+        batch = gitlab_batch(host, sorted({split(k)[2] for k in keys}))
+    found, in_a_row = {}, 0
+    for k in keys:
+        _, _, path, _ = split(k)
+        project = urllib.parse.quote(path, safe="")
+        api = f"https://{host}/api/v4/projects/{project}"
+        try:
+            known = batch.get(path.lower())
+            if known is None:
+                # Left out of the batch, or no batch: REST says where it is.
+                answer = get_json(api)
+                if answer is None:
+                    found[k] = None
+                    in_a_row = 0
+                    continue
+                known = {"path": answer["path_with_namespace"]}
+            tags = get_json(
+                f"{api}/repository/tags?order_by=version&sort=desc&per_page={TAGS}"
+            )
+            in_a_row = 0
+        except FAILED as e:
+            print(f"  {host}/{path}: {e}", file=sys.stderr)
+            in_a_row += 1
+            if in_a_row >= MAX_FAILURES_IN_A_ROW:
+                print(
+                    f"::warning::{host} stopped answering: the rest wait",
+                    file=sys.stderr,
+                )
+                break
+            continue
+        found[k] = repo(
+            host,
+            path,
+            [t["name"] for t in tags or []],
+            known.get("release"),
+            known.get("archived"),
+            known["path"],
+            today,
+        )
+    return found
+
+
+def forgejo(host, keys, today):
+    """{key: repo, or None when the instance doesn't know it} for keys on a
+    Forgejo instance; those not read are left out."""
+    found, in_a_row = {}, 0
+    for k in keys:
+        _, _, path, _ = split(k)
+        api = f"https://{host}/api/v1/repos/{path}"
+        try:
+            answer = get_json(api)
+            if answer is None:
+                found[k] = None
+                in_a_row = 0
+                continue
+            tags = get_json(f"{api}/tags?limit={TAGS}")
+            latest = get_json(f"{api}/releases/latest")
+            in_a_row = 0
+        except FAILED as e:
+            print(f"  {host}/{path}: {e}", file=sys.stderr)
+            in_a_row += 1
+            if in_a_row >= MAX_FAILURES_IN_A_ROW:
+                print(
+                    f"::warning::{host} stopped answering: the rest wait",
+                    file=sys.stderr,
+                )
+                break
+            continue
+        found[k] = repo(
+            host,
+            path,
+            [t["name"] for t in tags or []],
+            (latest or {}).get("tag_name"),
+            answer.get("archived"),
+            answer["full_name"],
+            today,
+        )
+    return found
+
+
+def repo(host, path, tags, release, archived, now_path, today):
+    """A repository's state, as releases.py keeps GitHub's: {"tags",
+    "release"?, "archived"?, "name"? (host/path now, when it isn't path,
+    case aside), "read"}."""
+    moved = now_path.lower() != path.lower()
+    return {
+        "tags": tags,
+        **({"release": release} if release else {}),
+        **({"archived": True} if archived else {}),
+        **({"name": f"{host}/{now_path}"} if moved else {}),
+        "read": today,
+    }
+
+
+def read(keys, today):
+    """{key: repo, or None when its forge doesn't know it} for keys on
+    other forges ("gitlab:..." and "forgejo:..."), host by host; those not
+    read this run are left out."""
+    by_site = {}
+    for k in keys:
+        forge, host, _, _ = split(k)
+        by_site.setdefault((forge, host), []).append(k)
+    found = {}
+    for (forge, host), site_keys in sorted(by_site.items()):
+        print(f"  {host}: {len(site_keys):,} repositories...", file=sys.stderr)
+        reader = gitlab if forge == "gitlab" else forgejo
+        found.update(reader(host, site_keys, today))
+    return found

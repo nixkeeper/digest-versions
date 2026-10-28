@@ -12,8 +12,10 @@ name: "Digest: Repology's nixpkgs projects"
 # Bioconductor, five (data/cran.json.gz); and GitHub
 # releases (data/releases.json.gz): weekly, an evaluation of nixpkgs for
 # where packages come from (Nix, about a minute), each run every one of their
-# repositories, 25 a GraphQL query (about 860 points, an hour: the run
-# takes about 75 minutes). The data branch is main plus one commit with the
+# repositories, 25 a GraphQL query (about 860 points, an hour), and those
+# on GitLab instances and Codeberg (about 1,150 and 320, each site asked at
+# most once a second, no token: about 40 minutes more). The run takes about
+# two hours, under its limit of three. The data branch is main plus one commit with the
 # digest (scripts/data-branch.sh).
 
 on:
