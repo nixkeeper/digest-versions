@@ -57,6 +57,8 @@ from nixkeeper import inferred
 from nixkeeper.sources import github, nixpkgs
 from nixkeeper.versions import version_key
 
+from . import forges
+
 FILE = "releases.json.gz"
 STATE = "releases-state.json.gz"
 FORMAT = 1
@@ -64,6 +66,10 @@ FORMAT = 1
 # per nix eval (memory stays small), and so many checks at the least (about
 # 23,000 on 2026-10-07): fewer, something went wrong.
 EVALUATE_EVERY = timedelta(days=7)
+# The checks' version: 2 since packages from GitLab instances and Codeberg
+# have one too (inferred.forge_check, 2026-10-28). A state from before is
+# evaluated again at once, not a week later.
+CHECKS_VERSION = 2
 CHUNK = 5000
 MIN_CHECKS = 10000
 # Repositories per query (100 made GitHub give up, 502: sorting tags by date
@@ -88,8 +94,10 @@ def in_bulk_set(attr):
 
 
 def evaluate(revision, attrs, sources=None):
-    """{attr: {"repo", "tags", "version"}} for the attrs fetched from a GitHub
-    tag, with the pattern their tags must match (inferred.github_check): src
+    """{attr: {"repo", "tags", "version", "forge"?}} for the attrs fetched
+    from a tag on GitHub, a GitLab instance or Codeberg ("forge": "gitlab"
+    or "forgejo", "repo" then "host/path"), with the pattern their tags must
+    match (inferred.forge_check): src
     evaluated at revision, CHUNK attributes at a time; every attr's src goes
     into sources too, when given (packages.py publishes them). Raises
     nixpkgs.EvalError when nixpkgs doesn't evaluate."""
@@ -103,13 +111,16 @@ def evaluate(revision, attrs, sources=None):
         for attr, src in nixpkgs.sources(part, revision).items():
             if sources is not None:
                 sources[attr] = src
-            check, _ = inferred.github_check(src, attr)
-            if check:
-                found[attr] = {
-                    "repo": check["github"],
-                    "tags": check["tags"],
-                    "version": src.get("version") or "",
-                }
+            check, _ = inferred.forge_check(src, attr)
+            if not check:
+                continue
+            forge = next(f for f in ("github", "gitlab", "forgejo") if f in check)
+            found[attr] = {
+                "repo": check[forge],
+                "tags": check["tags"],
+                "version": src.get("version") or "",
+                **({"forge": forge} if forge != "github" else {}),
+            }
     return found
 
 
@@ -121,8 +132,28 @@ def prefix(pattern):
 
 
 def key(check):
-    """The repository and tag prefix a check reads: "owner/repo|prefix"."""
-    return f"{check['repo']}|{prefix(check['tags'])}"
+    """The repository and tag prefix a check reads: "owner/repo|prefix" on
+    GitHub, "gitlab:host/path|prefix" or "forgejo:host/owner/repo|prefix"
+    elsewhere."""
+    where = f"{check['forge']}:{check['repo']}" if check.get("forge") else check["repo"]
+    return f"{where}|{prefix(check['tags'])}"
+
+
+def on_github(k):
+    """Whether key k is a GitHub repository's (no "forge:" before it)."""
+    return ":" not in k.split("|", 1)[0]
+
+
+def not_found(was, today):
+    """A repository's state once its forge doesn't know it: gone only when
+    it wasn't found the last read either (was: the state before), as a
+    query the forge fails can answer null for repositories that are there
+    (25 on GitHub, 2026-10-27, "Something went wrong while executing your
+    query"). The first time, what it had, marked "missing"."""
+    was = was or {}
+    if was.get("gone") or was.get("missing"):
+        return {"gone": True, "read": today}
+    return {**was, "missing": True, "read": was.get("read") or today}
 
 
 def query(keys):
@@ -178,15 +209,7 @@ def read_repos(keys, token, today, before=None):
                 continue  # not answered: read again next run
             repo = data[f"r{i}"]
             if repo is None:
-                was = (before or {}).get(k) or {}
-                if was.get("gone") or was.get("missing"):
-                    found[k] = {"gone": True, "read": today}
-                else:
-                    found[k] = {
-                        **was,
-                        "missing": True,
-                        "read": was.get("read") or today,
-                    }
+                found[k] = not_found((before or {}).get(k), today)
                 continue
             release = (repo.get("latestRelease") or {}).get("tagName")
             # GitHub answers for an old name with the repository it
@@ -239,6 +262,12 @@ def newest(check, repo):
     return found
 
 
+def is_older(version, than):
+    """Whether version is older than than, by Repology's order (no version:
+    no)."""
+    return bool(version) and version_key(version) < version_key(than)
+
+
 def read_state(directory):
     try:
         with gzip.open(os.path.join(directory, STATE), "rt") as f:
@@ -277,8 +306,12 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
     gets every package's src (packages.update)."""
     state = read_state(directory)
     evaluated = state.get("evaluatedAt")
-    if not evaluated or now - datetime.fromisoformat(evaluated) >= EVALUATE_EVERY:
-        print("Evaluating where packages come from (GitHub tags)...", file=sys.stderr)
+    if (
+        not evaluated
+        or now - datetime.fromisoformat(evaluated) >= EVALUATE_EVERY
+        or state.get("checksVersion") != CHECKS_VERSION
+    ):
+        print("Evaluating where packages come from (forge tags)...", file=sys.stderr)
         try:
             revision = nixpkgs.channel_revision()
             attrs = [a for a in nixpkgs.load_index() if not in_bulk_set(a)]
@@ -286,16 +319,20 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
             checks = evaluate(revision, attrs, sources)
             if len(checks) < MIN_CHECKS:
                 raise ValueError(
-                    f"only {len(checks):,} packages with a GitHub tag check "
+                    f"only {len(checks):,} packages with a tag check "
                     f"(expected over {MIN_CHECKS:,})"
                 )
             state.update(
                 checks=checks,
                 revision=revision,
                 evaluatedAt=now.isoformat(timespec="seconds"),
+                checksVersion=CHECKS_VERSION,
             )
+            elsewhere = sum(1 for c in checks.values() if c.get("forge"))
             print(
-                f"  {len(checks):,} packages with a GitHub tag check", file=sys.stderr
+                f"  {len(checks):,} packages with a tag check, {elsewhere:,} of "
+                "them on GitLab or Codeberg",
+                file=sys.stderr,
             )
             if on_evaluated:
                 on_evaluated(revision, sources)
@@ -314,32 +351,55 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
         del repos[gone]
     state.pop("rotation", None)  # the weekly rotation's place, before
     chosen = due(keys, repos, outdated_keys(state, outdated_attrs))
-    print(f"Reading {len(chosen):,} repositories on GitHub...", file=sys.stderr)
-    read_now = read_repos(chosen, token, now.date().isoformat(), repos)
+    today = now.date().isoformat()
+    on_hub = [k for k in chosen if on_github(k)]
+    print(f"Reading {len(on_hub):,} repositories on GitHub...", file=sys.stderr)
+    read_now = read_repos(on_hub, token, today, repos)
+    elsewhere_keys = [k for k in chosen if not on_github(k)]
+    print(
+        f"Reading {len(elsewhere_keys):,} repositories on GitLab and Codeberg...",
+        file=sys.stderr,
+    )
+    for k, found in forges.read(elsewhere_keys, today).items():
+        read_now[k] = found if found is not None else not_found(repos.get(k), today)
     repos.update(read_now)
     write_json(directory, STATE, {"format": FORMAT, **state})
-    packages = {}
+    packages, elsewhere = {}, {}
     for attr, check in sorted(checks.items()):
         repo = repos.get(key(check))
         if not repo:
             continue
+        # Another forge's in a section of its own: nixkeeper read
+        # "packages" as GitHub's before it knew of others.
+        into = elsewhere if check.get("forge") else packages
+        where = {"forge": check["forge"]} if check.get("forge") else {}
         if repo.get("gone"):
-            packages[attr] = {
+            into[attr] = {
+                **where,
                 "repo": check["repo"],
                 "version": check["version"],
                 "gone": True,
                 "read": repo["read"],
             }
             continue
-        packages[attr] = {
+        found = newest(check, repo)
+        # On another forge a "latest release" can be one nobody updated
+        # since (KDE's tellico: v3.5.5, its tags at v4.3): older than
+        # nixpkgs' version, it's left out and the tags decide.
+        if check.get("forge") and is_older(found.get("release"), check["version"]):
+            del found["release"]
+        into[attr] = {
+            **where,
             "repo": check["repo"],
             "version": check["version"],
-            **newest(check, repo),
+            **found,
             **({"archived": True} if repo.get("archived") else {}),
             **({"movedTo": repo["name"]} if repo.get("name") else {}),
             "read": repo["read"],
         }
-    gone = sorted({k.split("|", 1)[0] for k, r in repos.items() if r.get("gone")})
+    gone = sorted(
+        {k.split("|", 1)[0] for k, r in repos.items() if r.get("gone") and on_github(k)}
+    )
     write_json(
         directory,
         FILE,
@@ -349,19 +409,23 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
             "evaluatedAt": state["evaluatedAt"],
             "revision": state.get("revision"),
             "packages": packages,
+            "elsewhere": elsewhere,
             "gone": gone,
         },
     )
-    archived = sum(1 for p in packages.values() if p.get("archived"))
-    moved = sum(1 for p in packages.values() if p.get("movedTo"))
+    every = [*packages.values(), *elsewhere.values()]
+    archived = sum(1 for p in every if p.get("archived"))
+    moved = sum(1 for p in every if p.get("movedTo"))
     print(
-        f"  read {len(read_now):,}; {len(packages):,} packages, {len(gone):,} "
-        f"repositories gone; {archived:,} packages archived, {moved:,} moved",
+        f"  read {len(read_now):,}; {len(packages):,} packages on GitHub, "
+        f"{len(elsewhere):,} elsewhere, {len(gone):,} GitHub repositories gone; "
+        f"{archived:,} packages archived, {moved:,} moved",
         file=sys.stderr,
     )
     return {
         "at": now.isoformat(timespec="seconds"),
         "evaluatedAt": state["evaluatedAt"],
         "packages": len(packages),
+        "elsewhere": len(elsewhere),
         "read": len(read_now),
     }
