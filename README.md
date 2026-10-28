@@ -1,43 +1,108 @@
 # nixkeeper-versions
 
-A digest of [Repology](https://repology.org)'s data for every nixpkgs
-project, for [nixkeeper](https://github.com/nixkeeper/nixkeeper): each
-project's versions in every repository Repology knows, kept up to date every
-12 hours by a workflow, so nixkeeper reads one file instead of asking Repology about
-each of its packages.
+A digest of the upstream versions of nixpkgs' packages, for
+[nixkeeper](https://github.com/nixkeeper/nixkeeper): for each package, the
+newest version where it comes from, read from that source itself where
+the digest can, kept up to date every 12 hours by a workflow, so nixkeeper
+reads a few files instead of asking each source about each of its packages.
 
-It reads Repology the way nixpkgs-update does, from its lists of nixpkgs'
-projects, 200 to a request, and less often for what changes less often. All
-of nixpkgs costs about 650 requests a day in two runs (at most 930),
-whatever nixkeeper tracks, within Repology's [API rules](https://repology.org/api): at most one request
-a second, under 1,000 a day, with a User-Agent linking here.
+## Where the versions come from
+
+Each package's own source first, and [Repology](https://repology.org) for
+the rest:
+
+| Source | For | File |
+|---|---|---|
+| GitHub's tags and releases | packages fetched from a tag on GitHub (about 34,000 attributes, 21,000 repositories) | `releases.json.gz` |
+| GitLab instances' and Codeberg's tags and releases | packages fetched from a tag on gitlab.com, freedesktop, GNOME, KDE, Debian's salsa or Codeberg (about 1,400) | `releases.json.gz` (`elsewhere`) |
+| [Typst Universe](https://typst.app/universe/) | `typstPackages` | `typst.json.gz` |
+| The Emacs package archives (MELPA, MELPA Stable, NonGNU ELPA, GNU ELPA) | `emacsPackages` | `emacs.json.gz` |
+| [Stackage](https://www.stackage.org) LTS | the 3,400 `haskellPackages` nixpkgs pins to it | `stackage.json.gz` |
+| CRAN and Bioconductor | `rPackages` | `cran.json.gz` |
+| Repology | every nixpkgs project: the others' versions in every repository Repology knows, and the only source for the rest | `projects.jsonl.gz` |
+
+Measured on 2026-10-28: of nixpkgs' 151,804 attributes, 77,700 are in sets
+updated by their own import scripts (Emacs, Haskell, R, Typst, Common
+Lisp, TeX Live; the indexes above cover Emacs, R, Typst and Stackage's
+part of Haskell) or aren't versioned (darwin, freebsd); 35,500 have their
+version read from their forge; about 34,000 (22,000 distinct sources: PyPI,
+CPAN, GNOME Shell extensions, packages pinned to a GitHub commit rather
+than a tag, and a long tail of other sites) have Repology alone, for now.
+Every source is asked as its own rules ask: at most one request a second
+per site, a User-Agent linking here, and its index files rather than one
+request per package where it has them.
 
 ## The digest
 
-On the `data` branch:
+On the `data` branch, in `data/`.
 
-- [`data/projects.jsonl.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/projects.jsonl.gz)
-  (about 12 MB): every Repology project with a nixpkgs package
-  (`nix_unstable`), one per line, sorted by name:
+### Forges: `releases.json.gz`
 
-  ```json
-  {"project": "tracy", "checked": "2026-10-04",
-   "entries": [{"repo": "nix_unstable", "srcname": "tracy_0_11",
-                "version": "0.11.1", "status": "legacy"}, ...]}
-  ```
+[`data/releases.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/releases.json.gz):
+for each nixpkgs package fetched from a tag on a forge, its newest version
+there:
 
-  with each package of it in every repository, as Repology's API gives
-  them, trimmed to `repo`, `version`, `status`, `srcname` (for nixpkgs, the
-  package's attribute) and `vulnerable` (when `true`), each entry once; and
-  the day it was last read (`checked`). One project per line, so a reader
-  can keep only those it wants while reading: about 25 MB of memory instead
-  of 1.4 GB for all of them at once.
+```json
+{"format": 1, "fetchedAt": "...", "evaluatedAt": "...", "revision": "...",
+ "packages": {"whisky": {"repo": "Whisky-App/Whisky", "version": "2.3.5",
+                         "tag": "2.4.0", "release": "2.4.0", "read": "2026-10-08"}, ...},
+ "elsewhere": {"tellico": {"forge": "gitlab", "repo": "invent.kde.org/office/tellico",
+                           "version": "4.2.2", "tag": "4.3", "read": "2026-10-28"}, ...},
+ "gone": ["owner/repo", ...]}
+```
+
+- `packages` are GitHub's, `elsewhere` the other forges', with their
+  `forge` (`gitlab`, `forgejo`) and `repo` as `host/path`: apart because
+  nixkeeper read `packages` as GitHub's before it knew of others.
+- `version` is nixpkgs'; `tag` the newest of the repository's tags that
+  match the package's tag scheme (as nixkeeper's update checks work it out
+  from its source: `v2.4.0` for `v2.3.5`), by Repology's version order;
+  `release` its latest release's, when that matches (drafts and
+  pre-releases left out; on the other forges, also one older than
+  nixpkgs' version, which nobody updated: KDE's tellico); `read` when the
+  repository was last read.
+- What became of the repository, when something did: `archived` (true:
+  read-only, its owner's way of saying it's no longer worked on),
+  `movedTo` (its name now, when the forge answers for nixpkgs' name under
+  another: renamed, or moved to another owner), or `gone` (true, with no
+  `tag` or `release`: the forge didn't know it two runs in a row, as one
+  failed query can answer nothing for repositories that are there; GitHub's
+  are also listed in the top-level `gone`). A GitLab project waiting to be
+  deleted, which GitLab renames `...-deletion_scheduled-<id>`, counts as
+  gone.
+
+Where each package comes from is evaluated from nixpkgs weekly (with Nix
+and nixkeeper's own code, this flake's input: about a minute). Each run
+then reads every repository, so a release shows within 12 hours:
+
+- **GitHub**: those never read first, then those of packages Repology has
+  outdated, then the longest unread, 25 a GraphQL query (about 860 points a
+  run, an hour) with `NIXKEEPER_VERSIONS_TOKEN`, a personal token that only
+  needs to read public repositories (5,000 points an hour), else the
+  workflow's own (1,000: a run that gets low stops, and reads what it
+  missed first the next day).
+- **GitLab instances and Codeberg**: each site at most once a second, the
+  sites side by side (about 15 minutes). On GitLab a GraphQL query per 25
+  projects (archived, latest release, path; not on GNOME, which refuses
+  GraphQL that isn't a browser's, so it has no `archived`), then each
+  project's tags; on Codeberg each repository, its tags and its latest
+  release. Without a token, except gitlab.com with `GITLAB_TOKEN` when set:
+  `read_api` on an account in no group or project, so its limits are that
+  account's, not the runner's shared address's; a request the token is
+  refused for is asked again without it, at once.
+
+`releases-state.json.gz` keeps what that needs between runs. A run that
+can't evaluate or reach GitHub keeps the last.
+
+### Package indexes
+
+The indexes nixpkgs' generated sets are made from, whose versions Repology
+mostly can't compare. A run that can't read one keeps the last
+(`fetchedAt` says how old).
 
 - [`data/typst.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/typst.json.gz)
-  (about 17 KB): the newest version of each package on
-  [Typst Universe](https://typst.app/universe/), the source of nixpkgs'
-  `typstPackages`, whose versions Repology mostly can't compare, and the
-  day it was published:
+  (about 17 KB): the newest version of each package on Typst Universe, the
+  source of `typstPackages`, and the day it was published:
 
   ```json
   {"format": 1, "fetchedAt": "2026-10-07T04:10:00+00:00",
@@ -45,14 +110,11 @@ On the `data` branch:
   ```
 
   From Universe's index, one request a run (2.3 MB, every version of every
-  package). A run that can't read it keeps the last (`fetchedAt` says how
-  old).
+  package).
 
 - [`data/emacs.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/emacs.json.gz)
   (about 95 KB): the newest version of each package in each Emacs package
-  archive nixpkgs' `emacsPackages` are made from (MELPA, MELPA Stable,
-  NonGNU ELPA, GNU ELPA), whose versions Repology mostly can't compare
-  (MELPA's are dates):
+  archive `emacsPackages` are made from:
 
   ```json
   {"format": 1, "fetchedAt": "2026-10-08T04:10:00+00:00",
@@ -64,8 +126,8 @@ On the `data` branch:
   MELPA's versions are the date and time of the commit it built. From the
   archives' indexes, the ones nixpkgs' update scripts read: four requests a
   run (MELPA's two as JSON, the ELPAs' as Emacs Lisp data, of which only
-  each entry's name and version are read). A run that can't read all four
-  keeps the last (`fetchedAt` says how old).
+  each entry's name and version are read); a run keeps the last unless it
+  reads all four.
 
 - [`data/stackage.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/stackage.json.gz)
   (about 25 KB): the Stackage LTS series nixpkgs pins about 3,400 of its
@@ -82,15 +144,13 @@ On the `data` branch:
   Which series, and which packages, from `stackage.yaml` on nixpkgs master
   (its first line: "# Stackage LTS 24.38"); the versions from that
   series' newest snapshot on stackage.org (its `cabal.config`, as nixpkgs'
-  own update script reads it). Two requests a run; a run that can't read
-  either keeps the last.
+  own update script reads it). Two requests a run.
 
 - [`data/cran.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/cran.json.gz):
-  CRAN's and Bioconductor's packages and versions, which nixpkgs'
-  `rPackages` are generated from: CRAN as it is that day, and
-  Bioconductor's release that nixpkgs pins (read from the top of
-  `bioc-packages.json` on nixpkgs master), its software, annotation and
-  experiment packages:
+  CRAN's and Bioconductor's packages and versions, which `rPackages` are
+  generated from: CRAN as it is that day, and Bioconductor's release that
+  nixpkgs pins (read from the top of `bioc-packages.json` on nixpkgs
+  master), its software, annotation and experiment packages:
 
   ```json
   {"format": 1, "fetchedAt": "2026-10-08T04:10:00+00:00",
@@ -101,112 +161,40 @@ On the `data` branch:
 
   From their `PACKAGES.gz` index files, as R and nixpkgs' own update script
   read them: five requests a run. A package nixpkgs has in none of them is
-  no longer on CRAN (archived) or in that Bioconductor release. A run that
-  can't read all of them keeps the last.
+  no longer on CRAN (archived) or in that Bioconductor release; a run keeps
+  the last unless it reads all of them.
 
-- [`data/releases.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/releases.json.gz):
-  for each nixpkgs package fetched from a GitHub tag (about 34,000
-  attributes outside the sets above, 21,000 repositories), its newest
-  version on GitHub, so nixkeeper doesn't depend on Repology for them:
+### Repology: `projects.jsonl.gz`
 
-  ```json
-  {"format": 1, "fetchedAt": "...", "evaluatedAt": "...", "revision": "...",
-   "packages": {"whisky": {"repo": "Whisky-App/Whisky", "version": "2.3.5",
-                           "tag": "2.4.0", "release": "2.4.0", "read": "2026-10-08"}, ...},
-   "elsewhere": {"tellico": {"forge": "gitlab", "repo": "invent.kde.org/office/tellico",
-                             "version": "4.2.2", "tag": "4.3", "read": "2026-10-28"}, ...},
-   "gone": ["owner/repo", ...]}
-  ```
+[`data/projects.jsonl.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/projects.jsonl.gz)
+(about 12 MB): every Repology project with a nixpkgs package
+(`nix_unstable`), one per line, sorted by name:
 
-  `version` is nixpkgs'; `tag` the newest of the repository's tags that
-  match the package's tag scheme (as nixkeeper's update checks work it out
-  from its source: `v2.4.0` for `v2.3.5`), by Repology's version order;
-  `release` its latest release's, when that matches (drafts and
-  pre-releases left out); `read` when the repository was read. What became
-  of the repository, when something did: `archived` (true: read-only, its
-  owner's way of saying it's no longer worked on), `movedTo` (its name now,
-  when GitHub answers for nixpkgs' name under another: renamed, or moved to
-  another owner), or `gone` (true, with no `tag` or `release`: GitHub didn't
-  know it two runs in a row, as one query GitHub fails can answer nothing
-  for repositories that are there; also listed in the top-level `gone`).
-  `elsewhere` has the same for packages fetched from a tag on a GitLab
-  instance (gitlab.com, freedesktop, GNOME, KDE, Debian's salsa) or on
-  Codeberg, about 1,350, with their `forge` (`gitlab`, `forgejo`) and
-  `repo` as `host/path` (`movedTo` too; a GitLab project waiting to be
-  deleted, which GitLab renames `...-deletion_scheduled-<id>`, counts as
-  gone); apart from `packages` because
-  nixkeeper read those as GitHub's before it knew of others. They're read
-  without a token (gitlab.com with `GITLAB_TOKEN` when set: `read_api` on
-  an account in no group or project, so its limits are that account's, not
-  the runner's shared address's; a request the token is refused for is
-  asked again without it, at once), each site at most once a second, the
-  sites side by side: on GitLab a GraphQL query per 25 projects (archived, latest release, path; not on GNOME,
-  which refuses GraphQL that isn't a browser's, so it has no `archived`),
-  then each project's tags; on Codeberg each repository, its tags and its
-  latest release. A release older than nixpkgs' version is left out there
-  (one nobody updated: KDE's tellico), so the tags decide. Where each
-  package comes from is evaluated from nixpkgs weekly (with Nix and
-  nixkeeper's own code, this flake's input: about a minute); each run reads
-  every repository (about 21,400 on 2026-10-11, an hour), so a release
-  shows within 12 hours: those never read first, then those of packages
-  Repology has outdated, then the longest unread, 25 a GraphQL query (about
-  860 points) with `NIXKEEPER_VERSIONS_TOKEN`, a personal token that only
-  needs to read public repositories (5,000 points an hour), else the
-  workflow's own (1,000: a run that gets low stops, and reads what it
-  missed first the next day). `releases-state.json.gz` keeps what that needs
-  between runs. A run that can't evaluate or reach GitHub keeps the last.
+```json
+{"project": "tracy", "checked": "2026-10-04",
+ "entries": [{"repo": "nix_unstable", "srcname": "tracy_0_11",
+              "version": "0.11.1", "status": "legacy"}, ...]}
+```
 
-- [`data/nixpkgs.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/nixpkgs.json.gz):
-  nixpkgs' own facts about its packages, for readers without Nix (such as
-  [nixkeeper-vulnerabilities](https://github.com/nixkeeper/digest-vulnerabilities),
-  which matches packages to advisories by registry name and version, and
-  by source repository and tag or commit):
+with each package of it in every repository, as Repology's API gives them,
+trimmed to `repo`, `version`, `status`, `srcname` (for nixpkgs, the
+package's attribute) and `vulnerable` (when `true`), each entry once; and
+the day it was last read (`checked`). One project per line, so a reader
+can keep only those it wants while reading: about 25 MB of memory instead
+of 1.4 GB for all of them at once.
 
-  ```json
-  {"format": 1, "indexedAt": "...", "revision": "...",
-   "evaluatedAt": "...", "evaluatedRevision": "...",
-   "packages": {"python313Packages.requests": {"pname": "requests", "version": "2.32.5"},
-                "ripgrep": {"pname": "ripgrep", "version": "15.1.0",
-                            "src": {"gitRepoUrl": "https://github.com/BurntSushi/ripgrep.git",
-                                    "tag": "15.1.0", "url": "..."}}, ...}}
-  ```
+It's read the way nixpkgs-update reads Repology, from its lists of
+nixpkgs' projects, 200 to a request, and less often for what changes less
+often. All of nixpkgs costs about 650 requests a day in two runs (at most
+930), within Repology's [API rules](https://repology.org/api): at most one
+request a second, under 1,000 a day. Each run:
 
-  Every attribute's `pname` and `version`, from the channel's package
-  index (read daily, `revision` its commit); and `src`, where its source
-  comes from (the fields it has of `gitRepoUrl`, `tag`, `rev`, `url`), for
-  the attributes the weekly evaluation above covers (outside the sets
-  nixkeeper compares with their own sources). A run that can't read the
-  index keeps the last.
-
-- [`data/meta.json`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/meta.json):
-  when the outdated projects were last read (`outdatedAt`), how many there
-  are, where the weekly rotation is (`rotation.next`, and `rotation.lapAt`,
-  when it last went through all of them), the dropped projects' attributes
-  looked up again and found in another project (`moved`: `asked`,
-  `found`), how many projects there are, and
-  how many requests the run made, and when Typst Universe's index, the
-  Emacs archives, Stackage, CRAN and Bioconductor and GitHub were last read
-  and how many packages they had (`typst`, `emacs`, `stackage`, `cran`,
-  `releases`), and when nixpkgs' index was read and its sources evaluated,
-  with how many attributes and sources (`nixpkgs`).
-
-The `data` branch is `main` plus one commit with the digest: each run replaces
-it, so no history piles up.
-
-## How it's kept up to date
-
-The "Digest" workflow runs every 12 hours, started from outside GitHub at
-04:15 and 16:15 UTC (nixkeeper's `start-runs`), each run done (in about 75
-minutes) before one of nixkeeper's syncs; its own schedule (05:37 and
-17:37, often hours late) is the fallback, and stops when the digest is
-under 10 hours old:
-
-1. **Outdated projects, every run**: Repology's list of nixpkgs' outdated
-   projects, all of it (about 70 requests), as nixpkgs-update reads it. Every
+1. **Outdated projects**: Repology's list of nixpkgs' outdated projects,
+   all of it (about 70 requests), as nixpkgs-update reads it. Every
    outdated package's versions are at most 12 hours old.
-2. **No longer outdated, every run**: the projects that were outdated and
-   aren't on the list now (updated in nixpkgs, mostly), read one by one (up
-   to 250 a run).
+2. **No longer outdated**: the projects that were outdated and aren't on
+   the list now (updated in nixpkgs, mostly), read one by one (up to 250 a
+   run).
 3. **All projects, every week**: a fourteenth of all nixpkgs' projects (45
    pages), going on where the last run stopped: up-to-date projects' other
    repositories, legacy versions (not on the outdated list), and
@@ -226,8 +214,58 @@ under 10 hours old:
 The first run, with no digest yet, reads all projects at once (about 600
 requests, an hour); so does starting the workflow by hand with "full". A
 run that fails, or gets far fewer projects than nixpkgs has, publishes
-nothing: the last digest stays, and nixkeeper asks Repology itself for what
-it lacks.
+nothing, the other sources' files included: the last digest stays, and
+nixkeeper asks Repology itself for what it lacks.
+
+### nixpkgs: `nixpkgs.json.gz`
+
+[`data/nixpkgs.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/nixpkgs.json.gz):
+nixpkgs' own facts about its packages, for readers without Nix (such as
+[nixkeeper-vulnerabilities](https://github.com/nixkeeper/digest-vulnerabilities),
+which matches packages to advisories by registry name and version, and by
+source repository and tag or commit):
+
+```json
+{"format": 1, "indexedAt": "...", "revision": "...",
+ "evaluatedAt": "...", "evaluatedRevision": "...",
+ "packages": {"python313Packages.requests": {"pname": "requests", "version": "2.32.5"},
+              "ripgrep": {"pname": "ripgrep", "version": "15.1.0",
+                          "src": {"gitRepoUrl": "https://github.com/BurntSushi/ripgrep.git",
+                                  "tag": "15.1.0", "url": "..."}}, ...}}
+```
+
+Every attribute's `pname` and `version`, from the channel's package index
+(read daily, `revision` its commit); and `src`, where its source comes from
+(the fields it has of `gitRepoUrl`, `tag`, `rev`, `url`), for the
+attributes the weekly evaluation above covers (outside the sets nixkeeper
+compares with their own sources). A run that can't read the index keeps
+the last.
+
+### `meta.json`
+
+[`data/meta.json`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/meta.json):
+when each source was last read and how many packages it had (`releases`,
+`typst`, `emacs`, `stackage`, `cran`), when nixpkgs' index was read and its
+sources evaluated, with how many attributes and sources (`nixpkgs`); and
+for Repology, when the outdated projects were last read (`outdatedAt`), how
+many there are, where the weekly rotation is (`rotation.next`, and
+`rotation.lapAt`, when it last went through all of them), the dropped
+projects' attributes looked up again and found in another project
+(`moved`: `asked`, `found`), how many projects there are, and how many
+requests the run made.
+
+The `data` branch is `main` plus one commit with the digest: each run
+replaces it, so no history piles up.
+
+## How it's kept up to date
+
+The "Digest" workflow runs every 12 hours, started from outside GitHub at
+04:15 and 16:15 UTC (nixkeeper's `start-runs`), each run done (in about 85
+minutes, most of it GitHub and the other forges) before one of nixkeeper's
+syncs; its own schedule (05:37 and 17:37, often hours late) is the
+fallback, and stops when the digest is under 10 hours old. Each run reads
+Repology (above), the package indexes and every forge repository; weekly,
+it evaluates nixpkgs again for where packages come from.
 
 ## Running it
 
@@ -235,12 +273,12 @@ it lacks.
 nix run . -- data
 ```
 
-brings the digest in `data/` up to date (`-- data --full` reads all
-projects; `--if-older 10` only when the last run is over 10 hours old, so a
-run started twice sweeps once; `--sources-only` the other sources only,
-Typst, Emacs, Stackage, CRAN and GitHub, with no request to Repology, to
-try them without spending its daily allowance: "sources_only" when
-starting the workflow by hand). `nix flake check` runs the tests and lint, `nix fmt` formats.
+brings the digest in `data/` up to date (`-- data --full` reads all of
+Repology's projects; `--if-older 10` only when the last run is over 10
+hours old, so a run started twice reads once; `--sources-only` every source
+but Repology, to try them without spending its daily allowance:
+"sources_only" when starting the workflow by hand). `nix flake check` runs
+the tests and lint, `nix fmt` formats.
 
 ## AI & automation disclosure
 

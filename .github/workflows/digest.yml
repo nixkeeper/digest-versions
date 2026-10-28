@@ -1,23 +1,22 @@
-name: "Digest: Repology's nixpkgs projects"
+name: "Digest: nixpkgs' upstream versions"
 
-# Keeps the digest (the data branch: data/projects.jsonl.gz and data/meta.json)
-# up to date with Repology, every 12 hours, each run done before one of
-# nixkeeper's syncs (06:15 and 18:15 UTC): every outdated nixpkgs project,
-# the ones no longer outdated, and a fourteenth of all nixpkgs' projects, so
-# each is read weekly (nixkeeper_versions/cli.py). About 325 requests to
-# Repology's API a run, one a second, at most 465 (under its 1,000 a day
-# with two runs); Typst Universe's index, one
-# request (data/typst.json.gz); the Emacs archives' indexes, four
-# (data/emacs.json.gz); Stackage LTS, two (data/stackage.json.gz); CRAN and
-# Bioconductor, five (data/cran.json.gz); and GitHub
-# releases (data/releases.json.gz): weekly, an evaluation of nixpkgs for
-# where packages come from (Nix, about a minute), each run every one of their
-# repositories, 25 a GraphQL query (about 860 points, an hour), and those
-# on GitLab instances and Codeberg (about 1,150 and 320, each site asked at
-# most once a second, no token, the sites side by side: about 16 minutes
-# more, Codeberg's). The run takes about 85 minutes, under its limit of
-# three hours. The data branch is main plus one commit with the
-# digest (scripts/data-branch.sh).
+# Keeps the digest of nixpkgs' upstream versions (the data branch's data/)
+# up to date, every 12 hours, each run done before one of nixkeeper's syncs
+# (06:15 and 18:15 UTC). Weekly, an evaluation of nixpkgs for where packages
+# come from (Nix, about a minute); each run, the newest version of every
+# package fetched from a forge tag (data/releases.json.gz): GitHub's
+# repositories, 25 a GraphQL query (about 860 points, an hour), and those on
+# GitLab instances and Codeberg (about 1,400, each site asked at most once a
+# second, the sites side by side: about 15 minutes more); the indexes of
+# nixpkgs' generated sets: Typst Universe, one request (data/typst.json.gz),
+# the Emacs archives, four (data/emacs.json.gz), Stackage LTS, two
+# (data/stackage.json.gz), CRAN and Bioconductor, five (data/cran.json.gz);
+# and Repology (data/projects.jsonl.gz): every outdated nixpkgs project, the
+# ones no longer outdated, and a fourteenth of all nixpkgs' projects, so each
+# is read weekly (nixkeeper_versions/cli.py), about 325 requests to its API a
+# run, one a second, at most 465 (under its 1,000 a day with two runs). The
+# run takes about 85 minutes, under its limit of three hours. The data branch
+# is main plus one commit with the digest (scripts/data-branch.sh).
 
 on:
   schedule:
@@ -32,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: "Read all nixpkgs projects (about an hour), not a fourteenth"
+        description: "Read all of Repology's nixpkgs projects (about an hour), not a fourteenth"
         type: boolean
         default: false
       if_older:
@@ -40,7 +39,7 @@ on:
         type: string
         default: ""
       sources_only:
-        description: "The other sources only (Typst, Emacs, Stackage, CRAN, GitHub), no Repology"
+        description: "Every source but Repology (forges, Typst, Emacs, Stackage, CRAN)"
         type: boolean
         default: false
 

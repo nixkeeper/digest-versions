@@ -4,7 +4,7 @@
 [project]
 name = "nixkeeper-versions"
 version = "0.1.0"
-description = "A digest of Repology's data for nixpkgs' projects, for nixkeeper."
+description = "A digest of nixpkgs' packages' upstream versions, for nixkeeper."
 license = "MIT"
 requires-python = ">=3.11"
 

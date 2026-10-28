@@ -1,5 +1,5 @@
 {
-  description = "A digest of Repology's data for nixpkgs' projects, for nixkeeper.";
+  description = "A digest of nixpkgs' packages' upstream versions, for nixkeeper.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
