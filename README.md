@@ -21,7 +21,8 @@ the rest:
 | CRAN and Bioconductor | `rPackages` | `cran.json.gz` |
 | Repology | every nixpkgs project: the others' versions in every repository Repology knows, and the only source for the rest | `projects.jsonl.gz` |
 
-Measured on 2026-10-28: of nixpkgs' 151,804 attributes, 77,700 are in sets
+Measured on 2026-10-28 (each run counts again: `coverage` in
+[`meta.json`](#metajson)): of nixpkgs' 151,804 attributes, 77,700 are in sets
 updated by their own import scripts (Emacs, Haskell, R, Typst, Common
 Lisp, TeX Live; the indexes above cover Emacs, R, Typst and Stackage's
 part of Haskell) or aren't versioned (darwin, freebsd); 35,500 have their
@@ -246,7 +247,12 @@ the last.
 [`data/meta.json`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/meta.json):
 when each source was last read and how many packages it had (`releases`,
 `typst`, `emacs`, `stackage`, `cran`), when nixpkgs' index was read and its
-sources evaluated, with how many attributes and sources (`nixpkgs`); and
+sources evaluated, with how many attributes and sources (`nixpkgs`);
+how many attributes have a version from a source of their own, counted
+from the files after each run (`coverage`: `attributes`; `sets`, in a set
+updated by its own scripts or not versioned; `forges`, with a forge check,
+by forge; `noSource`, with no source in the evaluation; `repologyOnly`, the
+rest, and `repologyOnlySources`, their distinct sources); and
 for Repology, when the outdated projects were last read (`outdatedAt`), how
 many there are, where the weekly rotation is (`rotation.next`, and
 `rotation.lapAt`, when it last went through all of them), the dropped

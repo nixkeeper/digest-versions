@@ -42,7 +42,18 @@ import sys
 import time
 from datetime import UTC, datetime
 
-from . import cran, digest, emacs, packages, releases, repology, stackage, sweep, typst
+from . import (
+    coverage,
+    cran,
+    digest,
+    emacs,
+    packages,
+    releases,
+    repology,
+    stackage,
+    sweep,
+    typst,
+)
 
 # All of nixpkgs' projects (about 119,000, 600 pages) over about 14 runs, a
 # week of two a day; and at most so many single requests a run (the rest
@@ -149,6 +160,14 @@ def main(argv=None):
     nixpkgs_read = packages.update(
         directory, now, evaluated[0] if evaluated else None
     ) or meta.get("nixpkgs")
+    # How many attributes have a source of their own (the files just written).
+    covered = coverage.count(directory)
+    if covered:
+        print(
+            f"Coverage: {covered['repologyOnly']:,} of {covered['attributes']:,} "
+            "attributes with Repology as their only source",
+            file=sys.stderr,
+        )
     if sources_only:
         read_now = {
             "typst": typst_read,
@@ -157,6 +176,7 @@ def main(argv=None):
             "cran": cran_read,
             "releases": releases_read,
             "nixpkgs": nixpkgs_read,
+            "coverage": covered,
         }
         meta = {k: v for k, v in meta.items() if k != "format"}
         digest.write_meta(directory, meta | {k: v for k, v in read_now.items() if v})
@@ -246,6 +266,7 @@ def main(argv=None):
             **({"cran": cran_read} if cran_read else {}),
             **({"releases": releases_read} if releases_read else {}),
             **({"nixpkgs": nixpkgs_read} if nixpkgs_read else {}),
+            **({"coverage": covered} if covered else {}),
         },
     )
     minutes = (time.monotonic() - started) / 60
