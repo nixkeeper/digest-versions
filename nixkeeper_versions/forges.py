@@ -11,10 +11,12 @@ the project, so its path now says whether it was renamed. On Forgejo, one
 REST request each for the repository (archived, its name now: an old name
 redirects to the new one), its tags and its latest release. Each site is
 asked at most once every SITE_PAUSE_SECONDS (pace), the sites side by side,
-and every request names nixkeeper (its User-Agent).
+and every request names nixkeeper (its User-Agent). gitlab.com is asked
+with a token when there's one (GITLAB_TOKEN).
 """
 
 import json
+import os
 import sys
 import threading
 import time
@@ -38,6 +40,12 @@ NO_GRAPHQL = frozenset({"gitlab.gnome.org"})
 # Seconds a GraphQL query may take: one that doesn't answer in time leaves
 # its projects to REST (gitlab.com timed out at 60 s once, 2026-10-28).
 GRAPHQL_TIMEOUT = 20
+# The sites asked with GITLAB_TOKEN when it's set: a token's limits are per
+# account, not per address, which GitHub's runners share with everyone
+# else's requests (gitlab.com answered 429 after 43 projects, asking to wait
+# 25 minutes, 2026-10-28). The token is read_api on an account in no group
+# or project: it reads only what anyone can.
+TOKEN_HOSTS = frozenset({"gitlab.com"})
 # Stop asking a site after so many failures in a row: the rest wait for the
 # next run.
 MAX_FAILURES_IN_A_ROW = 3
@@ -75,10 +83,17 @@ def split(key):
     return forge, host, path, prefix
 
 
+def token_header(host):
+    """{"Authorization"} with GITLAB_TOKEN for host, or {} without one."""
+    token = os.environ.get("GITLAB_TOKEN")
+    return {"Authorization": f"Bearer {token}"} if token and host in TOKEN_HOSTS else {}
+
+
 def get_json(url):
     """url's JSON, paced per site; None on a 404."""
     pace(url)
-    body = http.get(url, accept="application/json")
+    host = urllib.parse.urlsplit(url).netloc.lower()
+    body = http.get(url, accept="application/json", headers=token_header(host))
     return None if body is None else json.loads(body)
 
 
@@ -93,6 +108,7 @@ def graphql(host, query):
             "User-Agent": nixkeeper_config.user_agent(),
             "Content-Type": "application/json",
             "Accept": "application/json",
+            **token_header(host),
         },
     )
     with urllib.request.urlopen(request, timeout=GRAPHQL_TIMEOUT) as resp:
