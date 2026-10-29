@@ -67,9 +67,10 @@ FORMAT = 1
 # 23,000 on 2026-10-07): fewer, something went wrong.
 EVALUATE_EVERY = timedelta(days=7)
 # The checks' version: 2 since packages from GitLab instances and Codeberg
-# have one too (inferred.forge_check, 2026-10-28). A state from before is
-# evaluated again at once, not a week later.
-CHECKS_VERSION = 2
+# have one too (inferred.forge_check, 2026-10-28), 3 since those fetched
+# from a commit with a release's version do (2026-10-29). A state from
+# before is evaluated again at once, not a week later.
+CHECKS_VERSION = 3
 CHUNK = 5000
 MIN_CHECKS = 10000
 # Repositories per query (100 made GitHub give up, 502: sorting tags by date
