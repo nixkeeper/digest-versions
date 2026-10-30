@@ -19,13 +19,15 @@ the rest:
 | The Emacs package archives (MELPA, MELPA Stable, NonGNU ELPA, GNU ELPA) | `emacsPackages` | `emacs.json.gz` |
 | [Stackage](https://www.stackage.org) LTS | the 3,400 `haskellPackages` nixpkgs pins to it | `stackage.json.gz` |
 | CRAN and Bioconductor | `rPackages` | `cran.json.gz` |
+| CHICKEN's egg indexes, Akku's index, extensions.gnome.org, the Azure CLI's extension index | `chickenPackages_5`, `chickenPackages_6`, `akkuPackages`, `gnomeExtensions`, `azure-cli-extensions` | `sets.json.gz` |
 | Repology | every nixpkgs project: the others' versions in every repository Repology knows, and the only source for the rest | `projects.jsonl.gz` |
 
 Measured on 2026-10-28 (each run counts again: `coverage` in
 [`meta.json`](#metajson)): of nixpkgs' 151,804 attributes, 77,700 are in sets
 updated by their own import scripts (Emacs, Haskell, R, Typst, Common
 Lisp, TeX Live; the indexes above cover Emacs, R, Typst and Stackage's
-part of Haskell) or aren't versioned (darwin, freebsd); 35,500 have their
+part of Haskell, and `sets.json.gz` five more sets, read by nixkeeper as
+sets of their own once it knows them) or aren't versioned (darwin, freebsd); 35,500 have their
 version read from their forge; about 34,000 (22,000 distinct sources: PyPI,
 CPAN, GNOME Shell extensions, packages pinned to a GitHub commit rather
 than a tag, and a long tail of other sites) have Repology alone, for now.
@@ -181,6 +183,40 @@ mostly can't compare. A run that can't read one keeps the last
   read them: five requests a run. A package nixpkgs has in none of them is
   no longer on CRAN (archived) or in that Bioconductor release; a run keeps
   the last unless it reads all of them.
+
+- [`data/sets.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/sets.json.gz):
+  the indexes of five more generated sets, each read as nixpkgs' own update
+  script reads it, each with its own `fetchedAt` (a set whose index can't
+  be read keeps its last part):
+
+  ```json
+  {"format": 1, "fetchedAt": "2026-10-30T04:10:00+00:00",
+   "sets": {"chickenPackages_5": {"fetchedAt": "...", "packages": {"7off": {"version": "1.33"}, ...}},
+            "akkuPackages": {"fetchedAt": "...", "packages": {"chibi-crypto-md5": {"version": "0.10.0"}, ...}},
+            "gnomeExtensions": {"fetchedAt": "...", "packages": {"color-picker@tuberry":
+                                {"slug": "color-picker", "shells": {"49": "47", "50": "49"}}, ...}},
+            "azure-cli-extensions": {"fetchedAt": "...", "packages": {"acat":
+                                     {"versions": [["1.0.0b1", "2.61.0"], ...]}}}, ...}}
+  ```
+
+  - `chickenPackages_5`, `chickenPackages_6`: CHICKEN's egg index for that
+    major version (`egg-tarballs/5/index.gz`, every version of every egg;
+    nixpkgs' `update.sh` reads the same eggs from git), each egg's newest
+    by Repology's version order. Two requests a run.
+  - `akkuPackages`: Akku's `Akku-index.scm`, as nixpkgs' `update.sh` reads
+    it, each package's newest, by its name in nixpkgs (a library name's
+    parts joined with `-`). One request.
+  - `gnomeExtensions`: extensions.gnome.org's extension query, 25 to a
+    page, one page a second (135 pages, about 3 minutes, as nixpkgs'
+    `update-extensions.py` walks it), by UUID: its slug and its newest
+    version for each GNOME Shell from 40 on (`shells`); and `attrs`,
+    which extension each nixpkgs attribute is (`{"gnomeExtensions.color-picker":
+    "color-picker@tuberry"}`), from the sources in `nixpkgs.json.gz`,
+    which name it by its UUID without `@`: slugs aren't unique (106 of
+    nixpkgs' extensions share theirs with another).
+  - `azure-cli-extensions`: the Azure CLI's `index.json`, as nixpkgs'
+    `extensions-tool.py` reads it: each version, with the oldest Azure CLI
+    it runs on (`azext.minCliCoreVersion`). One request.
 
 ### Repology: `projects.jsonl.gz`
 
