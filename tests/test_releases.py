@@ -466,6 +466,30 @@ class Pins(unittest.TestCase):
             },
         )
 
+    def test_no_release_date_without_its_release(self):
+        # A latest release that doesn't match the tags (SDL 3's
+        # release-3.2.2 for SDL 1.2's pin): neither it nor its date.
+        repo = {
+            "nameWithOwner": "alewmoose/2048-in-terminal",
+            "refs": {"nodes": []},
+            "latestRelease": {
+                "tagName": "release-3.2.2",
+                "publishedAt": "2026-10-25T00:00:00Z",
+            },
+            "defaultBranchRef": {"target": {"committedDate": "2026-10-25T00:00:00Z"}},
+        }
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.object(releases.nixpkgs, "channel_revision", return_value="abc"),
+            mock.patch.object(releases.nixpkgs, "load_index", return_value={}),
+            mock.patch.object(releases, "evaluate", return_value={"p": PIN}),
+            mock.patch.object(releases.github, "graphql", return_value={"r0": repo}),
+        ):
+            releases.update(d, NOW)
+            entry = releases.read(d)["pins"]["p"]
+        self.assertNotIn("release", entry)
+        self.assertNotIn("releasedAt", entry)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -505,7 +505,14 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
             "repo": check["repo"],
             "version": check["version"],
             **found,
-            **{k: repo[k] for k in ("branch", "releasedAt") if k in repo},
+            **({"branch": repo["branch"]} if "branch" in repo else {}),
+            # The release's date only with its version: one that doesn't
+            # match the tags isn't the package's.
+            **(
+                {"releasedAt": repo["releasedAt"]}
+                if "release" in found and "releasedAt" in repo
+                else {}
+            ),
             **({"archived": True} if repo.get("archived") else {}),
             **({"movedTo": repo["name"]} if repo.get("name") else {}),
             "read": repo["read"],
