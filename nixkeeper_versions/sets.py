@@ -9,7 +9,7 @@ nixpkgs' own update script reads them, written to data/sets.json.gz:
                                   "attrs": {"gnomeExtensions.move-clock":
                                             "move-clock@rmy.pobox.com", ...},
                                   "packages": {"move-clock@rmy.pobox.com":
-                                               {"slug": "move-clock",
+                                               {"slug": "move-clock", "pk": 2,
                                                 "shells": {"48": "36", ...}}, ...}},
               "azure-cli-extensions": {"fetchedAt": "...",
                                        "packages": {"acat": {"versions":
@@ -113,9 +113,10 @@ def akku(text):
 
 
 def gnome_extension(entry):
-    """(uuid, {"slug", "shells"}) for an extension of the query's answer:
-    its newest version for each GNOME Shell major version from 40 on ("46"
-    for 46.2; GNOME 3's are left out), or None without a UUID."""
+    """(uuid, {"slug", "pk"?, "shells"}) for an extension of the query's
+    answer: its number on the site (pk, in its page's address), and its
+    newest version for each GNOME Shell major version from 40 on ("46" for
+    46.2; GNOME 3's are left out); or None without a UUID."""
     uuid = entry.get("uuid")
     if not uuid:
         return None
@@ -130,6 +131,7 @@ def gnome_extension(entry):
     slug = (entry.get("link") or "").rstrip("/").rsplit("/", 1)[-1]
     return uuid, {
         "slug": slug,
+        **({"pk": entry["pk"]} if isinstance(entry.get("pk"), int) else {}),
         "shells": {k: str(v) for k, v in sorted(shells.items())},
     }
 
