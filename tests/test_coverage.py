@@ -10,6 +10,7 @@ PACKAGES = {
     "ripgrep": {"pname": "ripgrep", "src": {"gitRepoUrl": GH, "tag": "15.1.0"}},
     "coreaction": {"pname": "coreaction", "src": {"gitRepoUrl": GH, "tag": "v5"}},
     "hello-wrapper": {"pname": "hello-wrapper"},
+    "abduco": {"pname": "abduco", "src": {"gitRepoUrl": GH, "rev": "a" * 40}},
     # Two attributes of one source, a third of another.
     "python313Packages.six": {"pname": "six", "src": {"url": "mirror://pypi/s/six"}},
     "python314Packages.six": {"pname": "six", "src": {"url": "mirror://pypi/s/six"}},
@@ -27,14 +28,16 @@ class Coverage(unittest.TestCase):
                 {
                     "packages": {"ripgrep": {"repo": "a/b"}},
                     "elsewhere": {"coreaction": {"forge": "gitlab"}},
+                    "pins": {"abduco": {"repo": "a/b"}},
                 },
             )
             self.assertEqual(
                 coverage.count(d),
                 {
-                    "attributes": 8,
+                    "attributes": 9,
                     "sets": 2,
                     "forges": {"github": 1, "gitlab": 1},
+                    "pins": 1,
                     "noSource": 1,
                     "repologyOnly": 3,
                     "repologyOnlySources": 2,
@@ -45,4 +48,4 @@ class Coverage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertIsNone(coverage.count(d))
             packages.write(d, {"format": 1, "packages": PACKAGES})
-            self.assertEqual(coverage.count(d)["repologyOnly"], 5)
+            self.assertEqual(coverage.count(d)["repologyOnly"], 6)
