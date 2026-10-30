@@ -40,6 +40,7 @@ AKKU = """#!r6rs ; -*- mode: scheme; coding: utf-8 -*-
 # One extension of extensions.gnome.org's query (2026-10-30).
 EXTENSION = {
     "uuid": "color-picker@tuberry",
+    "pk": 3396,
     "link": "/extension/3396/color-picker/",
     "shell_version_map": {
         "3.36": {"pk": 1, "version": 12},
@@ -98,6 +99,7 @@ class Indexes(unittest.TestCase):
                 "color-picker@tuberry",
                 {
                     "slug": "color-picker",
+                    "pk": 3396,
                     # GNOME 3's left out; 50.1 counts as 50, its newest kept.
                     "shells": {"48": "46", "49": "47", "50": "49", "51": "50"},
                 },

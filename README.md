@@ -194,7 +194,7 @@ mostly can't compare. A run that can't read one keeps the last
    "sets": {"chickenPackages_5": {"fetchedAt": "...", "packages": {"7off": {"version": "1.33"}, ...}},
             "akkuPackages": {"fetchedAt": "...", "packages": {"chibi-crypto-md5": {"version": "0.10.0"}, ...}},
             "gnomeExtensions": {"fetchedAt": "...", "packages": {"color-picker@tuberry":
-                                {"slug": "color-picker", "shells": {"49": "47", "50": "49"}}, ...}},
+                                {"slug": "color-picker", "pk": 3396, "shells": {"49": "47", "50": "49"}}, ...}},
             "azure-cli-extensions": {"fetchedAt": "...", "packages": {"acat":
                                      {"versions": [["1.0.0b1", "2.61.0"], ...]}}}, ...}}
   ```
