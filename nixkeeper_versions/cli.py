@@ -4,7 +4,9 @@ bring the digest in
 DATA_DIR (default data/) up to date with Repology, and beside it the
 newest versions of Typst Universe (typst.py) and the Emacs package
 archives (emacs.py), the Stackage LTS nixpkgs follows (stackage.py), CRAN
-and the Bioconductor release nixpkgs pins (cran.py), and GitHub-hosted
+and the Bioconductor release nixpkgs pins (cran.py), the indexes nixpkgs'
+generated sets are made from (sets.py: CHICKEN eggs, Akku, GNOME Shell
+extensions, Azure CLI extensions), and GitHub-hosted
 packages' newest releases and tags (releases.py: weekly where they come
 from, each run every one of their repositories), and nixpkgs' own facts for
 readers without Nix (packages.py: every attribute's pname and version,
@@ -50,6 +52,7 @@ from . import (
     packages,
     releases,
     repology,
+    sets,
     stackage,
     sweep,
     typst,
@@ -141,6 +144,7 @@ def main(argv=None):
     emacs_read = emacs.update(directory, now) or meta.get("emacs")
     stackage_read = stackage.update(directory, now) or meta.get("stackage")
     cran_read = cran.update(directory, now) or meta.get("cran")
+    sets_read = sets.update(directory, now) or meta.get("sets")
     # The packages the last digest has outdated: their repositories are read
     # first (whatever Repology does today).
     outdated_before = {
@@ -174,6 +178,7 @@ def main(argv=None):
             "emacs": emacs_read,
             "stackage": stackage_read,
             "cran": cran_read,
+            "sets": sets_read,
             "releases": releases_read,
             "nixpkgs": nixpkgs_read,
             "coverage": covered,
@@ -264,6 +269,7 @@ def main(argv=None):
             **({"emacs": emacs_read} if emacs_read else {}),
             **({"stackage": stackage_read} if stackage_read else {}),
             **({"cran": cran_read} if cran_read else {}),
+            **({"sets": sets_read} if sets_read else {}),
             **({"releases": releases_read} if releases_read else {}),
             **({"nixpkgs": nixpkgs_read} if nixpkgs_read else {}),
             **({"coverage": covered} if covered else {}),
