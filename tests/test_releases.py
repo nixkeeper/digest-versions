@@ -2,6 +2,7 @@ import gzip
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
@@ -344,6 +345,126 @@ class Update(unittest.TestCase):
             )
             _, evaluated = self.run_update(d, [{"refs": {"nodes": []}}] * 3)
         self.assertTrue(evaluated)
+
+
+# As nixkeeper.inferred.pin_check works it out (2026-10-30's measurement).
+PIN = {
+    "repo": "alewmoose/2048-in-terminal",
+    "tags": r"^(?:v)?([0-9]+(?:[.][0-9]+)+)$",
+    "version": "0-unstable-2022-06-13",
+    "commit": "b" * 40,
+    "date": "2022-06-13",
+}
+PIN_KEY = "alewmoose/2048-in-terminal||" + "b" * 40
+
+
+class Pins(unittest.TestCase):
+    def setUp(self):
+        for patcher in (
+            mock.patch("sys.stderr", io.StringIO()),
+            mock.patch.object(releases.time, "sleep"),
+            mock.patch.object(releases, "MIN_CHECKS", 1),
+            mock.patch.dict(os.environ, {"GITHUB_TOKEN": "token"}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_key_and_query(self):
+        self.assertEqual(releases.key(PIN), PIN_KEY)
+        self.assertTrue(releases.is_pin(PIN_KEY))
+        self.assertFalse(releases.is_pin("Whisky-App/Whisky|v"))
+        q = releases.query([PIN_KEY, "Whisky-App/Whisky|v"])
+        self.assertIn('r0: repository(owner: "alewmoose", name: "2048-in-terminal")', q)
+        self.assertIn(f'compare(headRef: "{"b" * 40}")', q)
+        self.assertIn("latestRelease { tagName publishedAt }", q)
+        self.assertEqual(q.count("compare("), 1)  # only the pin's
+        self.assertNotIn("compare(", releases.query([PIN_KEY], compare=False))
+        self.assertIn("committedDate", releases.query([PIN_KEY], compare=False))
+
+    def test_evaluated_with_nixkeepers_pin_check(self):
+        src = {
+            "gitRepoUrl": "https://github.com/alewmoose/2048-in-terminal.git",
+            "rev": "b" * 40,
+            "version": "0-unstable-2022-06-13",
+        }
+        with mock.patch.object(
+            releases.nixpkgs, "sources", return_value={"_2048-in-terminal": src}
+        ):
+            found = releases.evaluate("abc", ["_2048-in-terminal"])
+        self.assertEqual(found, {"_2048-in-terminal": PIN})
+
+    def test_a_missing_commit_fails_only_its_own(self):
+        # GitHub answers nothing for a query with a commit not in its
+        # repository: each asked alone, the missing one without comparing.
+        other = "Whisky-App/Whisky|v"
+
+        def graphql(token, query, variables):
+            if "r1:" in query or ("b" * 40 in query and "compare(" in query):
+                return {}
+            return {"rateLimit": {"remaining": 900}, "r0": {"nameWithOwner": "x"}}
+
+        with mock.patch.object(releases.github, "graphql", side_effect=graphql) as g:
+            found = releases.ask("token", [PIN_KEY, other])
+        self.assertEqual(set(found), {"r0", "r1", "rateLimit"})
+        self.assertEqual(g.call_count, 4)  # both, each, the pin without comparing
+        self.assertEqual(releases.branch({}), {"status": "unknown"})
+
+    def test_written_in_a_section_of_their_own(self):
+        checks = {"whisky": CHECKS["whisky"], "_2048-in-terminal": PIN}
+        answers = {
+            "Whisky-App/Whisky": {"refs": {"nodes": [{"name": "v2.4.0"}]}},
+            "alewmoose/2048-in-terminal": {
+                "nameWithOwner": "alewmoose/2048-in-terminal",
+                "refs": {"nodes": [{"name": "v1.1"}]},
+                "latestRelease": {
+                    "tagName": "v1.1",
+                    "publishedAt": "2021-01-02T03:04:05Z",
+                },
+                "defaultBranchRef": {
+                    "target": {"committedDate": "2022-07-01T16:57:08Z"},
+                    "compare": {"status": "BEHIND", "aheadBy": 0, "behindBy": 3},
+                },
+            },
+        }
+
+        def graphql(token, query, variables):
+            asked = re.findall(
+                r'(r[0-9]+): repository\(owner: "([^"]+)", name: "([^"]+)"', query
+            )
+            return {
+                "rateLimit": {"remaining": 900},
+                **{field: answers[f"{owner}/{name}"] for field, owner, name in asked},
+            }
+
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.object(releases.nixpkgs, "channel_revision", return_value="abc"),
+            mock.patch.object(releases.nixpkgs, "load_index", return_value=checks),
+            mock.patch.object(releases, "evaluate", return_value=checks),
+            mock.patch.object(releases.github, "graphql", side_effect=graphql),
+        ):
+            meta = releases.update(d, NOW)
+            found = releases.read(d)
+        self.assertEqual((meta["packages"], meta["pins"]), (1, 1))
+        self.assertEqual(set(found["packages"]), {"whisky"})
+        self.assertEqual(
+            found["pins"]["_2048-in-terminal"],
+            {
+                "repo": "alewmoose/2048-in-terminal",
+                "version": "0-unstable-2022-06-13",
+                "commit": "b" * 40,
+                "tag": "1.1",
+                "release": "1.1",
+                "releasedAt": "2021-01-02",
+                "branch": {
+                    "status": "behind",
+                    "ahead": 0,
+                    "behind": 3,
+                    "lastCommit": "2022-07-01",
+                },
+                "read": "2026-10-08",
+            },
+        )
 
 
 if __name__ == "__main__":

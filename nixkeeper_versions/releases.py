@@ -41,7 +41,29 @@ another (renamed, or moved to another owner; GitHub redirects the old
 name), or "gone": true, with no tag or release, when GitHub doesn't know
 it any more (deleted, or made private), two runs in a row. Gone
 repositories are also listed in "gone". A run that fails keeps the last
-files."""
+files.
+
+Packages pinned to a GitHub commit with an unstable version
+(0-unstable-2024-05-01; nixkeeper.inferred.pin_check) have no version to
+compare: their commit is compared with the repository's default branch
+instead, and their release tags read as the others', in a section of their
+own ("pins"):
+
+    "pins": {"_2048-in-terminal": {"repo": "alewmoose/2048-in-terminal",
+                                   "version": "0-unstable-2022-06-13",
+                                   "commit": "bf22f86...",
+                                   "branch": {"status": "identical", "ahead": 0,
+                                              "behind": 0,
+                                              "lastCommit": "2022-06-13"},
+                                   "read": "2026-10-30"}, ...}
+
+"status" is GitHub's for the commit against the default branch: "identical"
+(the branch's newest), "behind" (by "behind" commits), "ahead" or
+"diverged" (on another branch: its commits aren't all on the default
+one), or "unknown" when GitHub couldn't compare (the commit isn't in the
+repository any more); "lastCommit" is the default branch's newest commit's
+date. "tag" and "release" as the others', and "releasedAt", the release's
+date: a release older than the pin isn't one since."""
 
 import gzip
 import json
@@ -68,9 +90,11 @@ FORMAT = 1
 EVALUATE_EVERY = timedelta(days=7)
 # The checks' version: 2 since packages from GitLab instances and Codeberg
 # have one too (inferred.forge_check, 2026-10-28), 3 since those fetched
-# from a commit with a release's version do (2026-10-29). A state from
-# before is evaluated again at once, not a week later.
-CHECKS_VERSION = 3
+# from a commit with a release's version do (2026-10-29), 4 since those
+# pinned to a commit with an unstable version do (inferred.pin_check,
+# 2026-10-30). A state from before is evaluated again at once, not a week
+# later.
+CHECKS_VERSION = 4
 CHUNK = 5000
 MIN_CHECKS = 10000
 # Repositories per query (100 made GitHub give up, 502: sorting tags by date
@@ -95,10 +119,12 @@ def in_bulk_set(attr):
 
 
 def evaluate(revision, attrs, sources=None):
-    """{attr: {"repo", "tags", "version", "forge"?}} for the attrs fetched
-    from a tag on GitHub, a GitLab instance or Codeberg ("forge": "gitlab"
-    or "forgejo", "repo" then "host/path"), with the pattern their tags must
-    match (inferred.forge_check): src
+    """{attr: {"repo", "tags", "version", "forge"?, "commit"?, "date"?}} for
+    the attrs fetched from a tag on GitHub, a GitLab instance or Codeberg
+    ("forge": "gitlab" or "forgejo", "repo" then "host/path"), with the
+    pattern their tags must match (inferred.forge_check), and those pinned
+    to a GitHub commit with an unstable version ("commit" and its "date";
+    inferred.pin_check): src
     evaluated at revision, CHUNK attributes at a time; every attr's src goes
     into sources too, when given (packages.py publishes them). Raises
     nixpkgs.EvalError when nixpkgs doesn't evaluate."""
@@ -114,6 +140,8 @@ def evaluate(revision, attrs, sources=None):
                 sources[attr] = src
             check, _ = inferred.forge_check(src, attr)
             if not check:
+                check, _ = inferred.pin_check(src, attr)
+            if not check:
                 continue
             forge = next(f for f in ("github", "gitlab", "forgejo") if f in check)
             found[attr] = {
@@ -121,6 +149,7 @@ def evaluate(revision, attrs, sources=None):
                 "tags": check["tags"],
                 "version": src.get("version") or "",
                 **({"forge": forge} if forge != "github" else {}),
+                **{k: check[k] for k in ("commit", "date") if k in check},
             }
     return found
 
@@ -135,14 +164,20 @@ def prefix(pattern):
 def key(check):
     """The repository and tag prefix a check reads: "owner/repo|prefix" on
     GitHub, "gitlab:host/path|prefix" or "forgejo:host/owner/repo|prefix"
-    elsewhere."""
+    elsewhere; a pin's commit after them ("owner/repo|prefix|commit")."""
     where = f"{check['forge']}:{check['repo']}" if check.get("forge") else check["repo"]
-    return f"{where}|{prefix(check['tags'])}"
+    pinned = f"|{check['commit']}" if check.get("commit") else ""
+    return f"{where}|{prefix(check['tags'])}{pinned}"
 
 
 def on_github(k):
     """Whether key k is a GitHub repository's (no "forge:" before it)."""
     return ":" not in k.split("|", 1)[0]
+
+
+def is_pin(k):
+    """Whether key k is a pin's (a commit after its prefix)."""
+    return k.count("|") == 2
 
 
 def not_found(was, today):
@@ -157,29 +192,86 @@ def not_found(was, today):
     return {**was, "missing": True, "read": was.get("read") or today}
 
 
-def query(keys):
+def query(keys, compare=True):
     """One GraphQL query for keys' repositories: each one's newest TAGS tags
     by commit date (only those containing its prefix, for monorepos), and
-    its latest release."""
+    its latest release; for a pin, the release's date and the default
+    branch's newest commit's, and the pin's commit compared with that
+    branch (unless compare is False)."""
     fields = []
     for i, k in enumerate(keys):
-        repo, start = k.split("|", 1)
+        repo, start, *commit = k.split("|")
         owner, name = repo.split("/", 1)
         filtered = f", query: {json.dumps(start)}" if len(start) > 1 else ""
+        pin = ""
+        if commit:
+            compared = (
+                f" compare(headRef: {json.dumps(commit[0])})"
+                " { status aheadBy behindBy }"
+                if compare
+                else ""
+            )
+            pin = (
+                " defaultBranchRef { target { ... on Commit { committedDate } }"
+                f"{compared} }}"
+            )
         fields.append(
             f"r{i}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{"
             " nameWithOwner isArchived"
             f' refs(refPrefix: "refs/tags/", first: {TAGS}{filtered},'
             " orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) { nodes { name } }"
-            " latestRelease { tagName } }"
+            f" latestRelease {{ tagName{' publishedAt' if commit else ''} }}{pin} }}"
         )
     return "query { rateLimit { remaining } " + " ".join(fields) + " }"
 
 
+def ask(token, keys):
+    """GitHub's answer to query(keys). GitHub fails the whole query when one
+    pin's commit isn't in its repository ("Something went wrong while
+    executing your query", 2026-10-30): an answer with none of the
+    repositories, for a query with pins, is asked again a repository at a
+    time, and a lone pin's without the comparison."""
+    data = github.graphql(token, query(keys), {})
+    if any(f"r{i}" in data for i in range(len(keys))) or not any(map(is_pin, keys)):
+        return data
+    if len(keys) == 1:
+        return github.graphql(token, query(keys, compare=False), {})
+    found = {}
+    for i, k in enumerate(keys):
+        one = ask(token, [k])
+        if "r0" in one:
+            found[f"r{i}"] = one["r0"]
+        if "rateLimit" in one:
+            found["rateLimit"] = one["rateLimit"]
+    return found
+
+
+def branch(repo):
+    """A pin's commit against its repository's default branch, from its
+    answer: {"status", "ahead", "behind", "lastCommit"}, "status" "unknown"
+    when GitHub didn't compare them."""
+    default = repo.get("defaultBranchRef") or {}
+    compared = default.get("compare")
+    last = ((default.get("target") or {}).get("committedDate") or "")[:10]
+    return {
+        **(
+            {
+                "status": compared["status"].lower(),
+                "ahead": compared["aheadBy"],
+                "behind": compared["behindBy"],
+            }
+            if compared
+            else {"status": "unknown"}
+        ),
+        **({"lastCommit": last} if last else {}),
+    }
+
+
 def read_repos(keys, token, today, before=None):
-    """{key: {"tags", "release", "read", "archived"?, "name"?} or {"gone":
-    True, "read"}} for those of keys GitHub answered, BATCH a query ("name":
-    the repository's name now, when it isn't the key's); stops early when
+    """{key: {"tags", "release", "read", "archived"?, "name"?, "branch"?,
+    "releasedAt"?} or {"gone": True, "read"}} for those of keys GitHub
+    answered, BATCH a query ("name": the repository's name now, when it
+    isn't the key's; "branch" and "releasedAt" for a pin's); stops early when
     the token runs low or GitHub stops answering (the rest wait for the next
     run).
 
@@ -193,7 +285,7 @@ def read_repos(keys, token, today, before=None):
     for start in range(0, len(keys), BATCH):
         part = keys[start : start + BATCH]
         try:
-            data = github.graphql(token, query(part), {})
+            data = ask(token, part)
             in_a_row = 0
         except (urllib.error.URLError, OSError, ValueError) as e:
             print(f"  GitHub: {e}", file=sys.stderr)
@@ -212,7 +304,8 @@ def read_repos(keys, token, today, before=None):
             if repo is None:
                 found[k] = not_found((before or {}).get(k), today)
                 continue
-            release = (repo.get("latestRelease") or {}).get("tagName")
+            latest = repo.get("latestRelease") or {}
+            release = latest.get("tagName")
             # GitHub answers for an old name with the repository it
             # redirects to; a name only cased differently is the same one.
             name = repo.get("nameWithOwner")
@@ -224,6 +317,18 @@ def read_repos(keys, token, today, before=None):
                 **({"release": release} if release else {}),
                 **({"archived": True} if repo.get("isArchived") else {}),
                 **({"name": name} if moved else {}),
+                **(
+                    {
+                        "branch": branch(repo),
+                        **(
+                            {"releasedAt": latest["publishedAt"][:10]}
+                            if latest.get("publishedAt")
+                            else {}
+                        ),
+                    }
+                    if is_pin(k)
+                    else {}
+                ),
                 "read": today,
             }
         if (data.get("rateLimit") or {}).get("remaining", MIN_POINTS) < MIN_POINTS:
@@ -330,9 +435,11 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
                 checksVersion=CHECKS_VERSION,
             )
             elsewhere = sum(1 for c in checks.values() if c.get("forge"))
+            pinned = sum(1 for c in checks.values() if c.get("commit"))
             print(
-                f"  {len(checks):,} packages with a tag check, {elsewhere:,} of "
-                "them on GitLab or Codeberg",
+                f"  {len(checks) - pinned:,} packages with a tag check, "
+                f"{elsewhere:,} of them on GitLab or Codeberg, and {pinned:,} "
+                "pinned to a GitHub commit",
                 file=sys.stderr,
             )
             if on_evaluated:
@@ -365,15 +472,19 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
         read_now[k] = found if found is not None else not_found(repos.get(k), today)
     repos.update(read_now)
     write_json(directory, STATE, {"format": FORMAT, **state})
-    packages, elsewhere = {}, {}
+    packages, elsewhere, pins = {}, {}, {}
     for attr, check in sorted(checks.items()):
         repo = repos.get(key(check))
         if not repo:
             continue
-        # Another forge's in a section of its own: nixkeeper read
-        # "packages" as GitHub's before it knew of others.
-        into = elsewhere if check.get("forge") else packages
-        where = {"forge": check["forge"]} if check.get("forge") else {}
+        # Another forge's, and pins, in sections of their own: nixkeeper
+        # read "packages" as GitHub's tags before it knew of others.
+        if check.get("commit"):
+            into, where = pins, {"commit": check["commit"]}
+        elif check.get("forge"):
+            into, where = elsewhere, {"forge": check["forge"]}
+        else:
+            into, where = packages, {}
         if repo.get("gone"):
             into[attr] = {
                 **where,
@@ -394,6 +505,7 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
             "repo": check["repo"],
             "version": check["version"],
             **found,
+            **{k: repo[k] for k in ("branch", "releasedAt") if k in repo},
             **({"archived": True} if repo.get("archived") else {}),
             **({"movedTo": repo["name"]} if repo.get("name") else {}),
             "read": repo["read"],
@@ -411,15 +523,17 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
             "revision": state.get("revision"),
             "packages": packages,
             "elsewhere": elsewhere,
+            "pins": pins,
             "gone": gone,
         },
     )
-    every = [*packages.values(), *elsewhere.values()]
+    every = [*packages.values(), *elsewhere.values(), *pins.values()]
     archived = sum(1 for p in every if p.get("archived"))
     moved = sum(1 for p in every if p.get("movedTo"))
     print(
         f"  read {len(read_now):,}; {len(packages):,} packages on GitHub, "
-        f"{len(elsewhere):,} elsewhere, {len(gone):,} GitHub repositories gone; "
+        f"{len(elsewhere):,} elsewhere, {len(pins):,} pinned to a commit, "
+        f"{len(gone):,} GitHub repositories gone; "
         f"{archived:,} packages archived, {moved:,} moved",
         file=sys.stderr,
     )
@@ -428,5 +542,6 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
         "evaluatedAt": state["evaluatedAt"],
         "packages": len(packages),
         "elsewhere": len(elsewhere),
+        "pins": len(pins),
         "read": len(read_now),
     }

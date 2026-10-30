@@ -41,7 +41,8 @@ On the `data` branch, in `data/`.
 
 [`data/releases.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/releases.json.gz):
 for each nixpkgs package fetched from a tag on a forge, its newest version
-there:
+there, and for each one pinned to a GitHub commit with an unstable version,
+how far its commit is behind:
 
 ```json
 {"format": 1, "fetchedAt": "...", "evaluatedAt": "...", "revision": "...",
@@ -49,6 +50,9 @@ there:
                          "tag": "2.4.0", "release": "2.4.0", "read": "2026-10-08"}, ...},
  "elsewhere": {"tellico": {"forge": "gitlab", "repo": "invent.kde.org/office/tellico",
                            "version": "4.2.2", "tag": "4.3", "read": "2026-10-28"}, ...},
+ "pins": {"extrakto": {"repo": "laktak/extrakto", "version": "0-unstable-2025-07-27",
+                       "commit": "...", "branch": {"status": "behind", "ahead": 0,
+                       "behind": 8, "lastCommit": "2026-03-02"}, "read": "2026-10-30"}, ...},
  "gone": ["owner/repo", ...]}
 ```
 
@@ -71,14 +75,27 @@ there:
   are also listed in the top-level `gone`). A GitLab project waiting to be
   deleted, which GitLab renames `...-deletion_scheduled-<id>`, counts as
   gone.
+- `pins` are the packages fetched from a GitHub commit with an unstable
+  version (`0-unstable-2024-05-01`, `1.2.12-unstable-2026-07-05`): no
+  version to compare, so their `commit` is compared with the default
+  branch. `branch.status` is GitHub's: `identical` (the branch's newest
+  commit), `behind` (by `behind` commits), `ahead` or `diverged` (the
+  commit is on another branch, as SDL_image's on SDL 1.2), or `unknown`
+  when GitHub couldn't compare (the commit isn't in the repository any
+  more); `lastCommit` the default branch's newest commit's date. `tag` and
+  `release` as above, with the tags of the release the version starts with
+  (`1.2.12`), or any `v` + numbers for `0-unstable`; `releasedAt` the
+  release's date, as one older than the pin isn't one since. The rest
+  (`archived`, `movedTo`, `gone`, `read`) as above.
 
 Where each package comes from is evaluated from nixpkgs weekly (with Nix
 and nixkeeper's own code, this flake's input: about a minute). Each run
 then reads every repository, so a release shows within 12 hours:
 
 - **GitHub**: those never read first, then those of packages Repology has
-  outdated, then the longest unread, 25 a GraphQL query (about 860 points a
-  run, an hour) with `NIXKEEPER_VERSIONS_TOKEN`, a personal token that only
+  outdated, then the longest unread, 25 a GraphQL query (about 1,020
+  points a run, 160 of them for the pins' 4,000 repositories and commits)
+  with `NIXKEEPER_VERSIONS_TOKEN`, a personal token that only
   needs to read public repositories (5,000 points an hour), else the
   workflow's own (1,000: a run that gets low stops, and reads what it
   missed first the next day).
@@ -251,7 +268,8 @@ sources evaluated, with how many attributes and sources (`nixpkgs`);
 how many attributes have a version from a source of their own, counted
 from the files after each run (`coverage`: `attributes`; `sets`, in a set
 updated by its own scripts or not versioned; `forges`, with a forge check,
-by forge; `noSource`, with no source in the evaluation; `repologyOnly`, the
+by forge; `pins`, pinned to a GitHub commit and compared with its
+default branch; `noSource`, with no source in the evaluation; `repologyOnly`, the
 rest, and `repologyOnlySources`, their distinct sources); and
 for Repology, when the outdated projects were last read (`outdatedAt`), how
 many there are, where the weekly rotation is (`rotation.next`, and
