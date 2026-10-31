@@ -98,6 +98,7 @@ class InTheRun(unittest.TestCase):
             ),
             mock.patch("nixkeeper_versions.releases.update", return_value=None),
             mock.patch("nixkeeper_versions.sets.update", return_value=None),
+            mock.patch("nixkeeper_versions.registries.update", return_value=None),
             mock.patch("nixkeeper_versions.cran.read_indexes", side_effect=OSError),
             mock.patch("sys.stderr", io.StringIO()),
         ):

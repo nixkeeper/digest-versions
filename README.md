@@ -20,6 +20,7 @@ the rest:
 | [Stackage](https://www.stackage.org) LTS | the 3,400 `haskellPackages` nixpkgs pins to it | `stackage.json.gz` |
 | CRAN and Bioconductor | `rPackages` | `cran.json.gz` |
 | CHICKEN's egg indexes, Akku's index, extensions.gnome.org, the Azure CLI's extension index | `chickenPackages_5`, `chickenPackages_6`, `akkuPackages`, `gnomeExtensions`, `azure-cli-extensions` | `sets.json.gz` |
+| [RubyGems](https://rubygems.org) and [crates.io](https://crates.io) | the gems and crates nixpkgs fetches from them: `rubyPackages` (three sets, 428 gems) and about 250 applications | `registries.json.gz` |
 | Repology | every nixpkgs project: the others' versions in every repository Repology knows, and the only source for the rest | `projects.jsonl.gz` |
 
 Measured on 2026-10-28 (each run counts again: `coverage` in
@@ -218,6 +219,32 @@ mostly can't compare. A run that can't read one keeps the last
     `extensions-tool.py` reads it: each version, with the oldest Azure CLI
     it runs on (`azext.minCliCoreVersion`). One request.
 
+- [`data/registries.json.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/registries.json.gz):
+  the newest versions of the gems and crates nixpkgs fetches from RubyGems
+  and crates.io, each registry with its own `fetchedAt`, and `attrs`, which
+  gem or crate each attribute is (from the sources in `nixpkgs.json.gz`: a
+  crate's name is often not the attribute's):
+
+  ```json
+  {"format": 1, "fetchedAt": "2026-10-31T04:10:00+00:00",
+   "registries": {"rubygems": {"fetchedAt": "...", "attrs": {"rubyPackages.rails": "rails", ...},
+                               "packages": {"rails": {"version": "8.1.4"}, ...}},
+                  "crates.io": {"fetchedAt": "...", "attrs": {"_0x": "ohx", ...},
+                                "packages": {"pijul": {"version": "0.15.0",
+                                                       "preRelease": "1.0.0-beta.24"}, ...}}}}
+  ```
+
+  - `rubygems`: each gem's newest release (`versions/<gem>/latest.json`),
+    for the attributes whose source is a gem (`rubyPackages`,
+    `rubyPackages_3_4`, `rubyPackages_4_0` and a few applications).
+  - `crates.io`: each crate's newest version that isn't yanked or a
+    pre-release, and its newest pre-release when that's newer
+    (`preRelease`), from crates.io's sparse index.
+
+  One request per gem or crate, a quarter of a second apart (about 650,
+  11 minutes a run). A registry that can't be read, or whose answers fail
+  for over a tenth of its names, keeps its last part.
+
 ### Repology: `projects.jsonl.gz`
 
 [`data/projects.jsonl.gz`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/projects.jsonl.gz)
@@ -299,13 +326,14 @@ the last.
 
 [`data/meta.json`](https://raw.githubusercontent.com/nixkeeper/digest-versions/data/data/meta.json):
 when each source was last read and how many packages it had (`releases`,
-`typst`, `emacs`, `stackage`, `cran`), when nixpkgs' index was read and its
+`typst`, `emacs`, `stackage`, `cran`, `sets`, `registries`), when nixpkgs' index was read and its
 sources evaluated, with how many attributes and sources (`nixpkgs`);
 how many attributes have a version from a source of their own, counted
 from the files after each run (`coverage`: `attributes`; `sets`, in a set
 updated by its own scripts or not versioned; `forges`, with a forge check,
 by forge; `pins`, pinned to a GitHub commit and compared with its
-default branch; `noSource`, with no source in the evaluation; `repologyOnly`, the
+default branch; `registries`, with a version from its registry, by
+registry; `noSource`, with no source in the evaluation; `repologyOnly`, the
 rest, and `repologyOnlySources`, their distinct sources); and
 for Repology, when the outdated projects were last read (`outdatedAt`), how
 many there are, where the weekly rotation is (`rotation.next`, and

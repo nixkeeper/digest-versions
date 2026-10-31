@@ -1,8 +1,10 @@
 import tempfile
 import unittest
+from datetime import UTC, datetime
 
-from nixkeeper_versions import coverage, packages, releases
+from nixkeeper_versions import coverage, packages, registries, releases
 
+NOW = datetime(2026, 10, 31, tzinfo=UTC)
 GH = "https://github.com/a/b.git"
 PACKAGES = {
     "emacsPackages.magit": {"pname": "magit"},
@@ -15,6 +17,15 @@ PACKAGES = {
     "python313Packages.six": {"pname": "six", "src": {"url": "mirror://pypi/s/six"}},
     "python314Packages.six": {"pname": "six", "src": {"url": "mirror://pypi/s/six"}},
     "perl": {"pname": "perl", "src": {"url": "mirror://cpan/perl.tar.gz"}},
+    # A crate crates.io has, and one it doesn't.
+    "_0x": {
+        "pname": "0x",
+        "src": {"url": "https://static.crates.io/crates/ohx/0.1.0/download"},
+    },
+    "gone": {
+        "pname": "gone",
+        "src": {"url": "https://static.crates.io/crates/gone/1/download"},
+    },
 }
 
 
@@ -31,16 +42,27 @@ class Coverage(unittest.TestCase):
                     "pins": {"abduco": {"repo": "a/b"}},
                 },
             )
+            registries.write(
+                d,
+                {
+                    "crates.io": {
+                        "attrs": {"_0x": "ohx", "gone": "gone"},
+                        "packages": {"ohx": {"version": "0.1.0"}},
+                    }
+                },
+                NOW,
+            )
             self.assertEqual(
                 coverage.count(d),
                 {
-                    "attributes": 9,
+                    "attributes": 11,
                     "sets": 2,
                     "forges": {"github": 1, "gitlab": 1},
                     "pins": 1,
+                    "registries": {"crates.io": 1},
                     "noSource": 1,
-                    "repologyOnly": 3,
-                    "repologyOnlySources": 2,
+                    "repologyOnly": 4,
+                    "repologyOnlySources": 3,
                 },
             )
 
@@ -48,4 +70,4 @@ class Coverage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertIsNone(coverage.count(d))
             packages.write(d, {"format": 1, "packages": PACKAGES})
-            self.assertEqual(coverage.count(d)["repologyOnly"], 6)
+            self.assertEqual(coverage.count(d)["repologyOnly"], 8)

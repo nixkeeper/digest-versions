@@ -6,7 +6,8 @@ newest versions of Typst Universe (typst.py) and the Emacs package
 archives (emacs.py), the Stackage LTS nixpkgs follows (stackage.py), CRAN
 and the Bioconductor release nixpkgs pins (cran.py), the indexes nixpkgs'
 generated sets are made from (sets.py: CHICKEN eggs, Akku, GNOME Shell
-extensions, Azure CLI extensions), and GitHub-hosted
+extensions, Azure CLI extensions), the gems and crates nixpkgs fetches
+from RubyGems and crates.io (registries.py), and GitHub-hosted
 packages' newest releases and tags (releases.py: weekly where they come
 from, each run every one of their repositories), and nixpkgs' own facts for
 readers without Nix (packages.py: every attribute's pname and version,
@@ -50,6 +51,7 @@ from . import (
     digest,
     emacs,
     packages,
+    registries,
     releases,
     repology,
     sets,
@@ -145,6 +147,7 @@ def main(argv=None):
     stackage_read = stackage.update(directory, now) or meta.get("stackage")
     cran_read = cran.update(directory, now) or meta.get("cran")
     sets_read = sets.update(directory, now) or meta.get("sets")
+    registries_read = registries.update(directory, now) or meta.get("registries")
     # The packages the last digest has outdated: their repositories are read
     # first (whatever Repology does today).
     outdated_before = {
@@ -179,6 +182,7 @@ def main(argv=None):
             "stackage": stackage_read,
             "cran": cran_read,
             "sets": sets_read,
+            "registries": registries_read,
             "releases": releases_read,
             "nixpkgs": nixpkgs_read,
             "coverage": covered,
@@ -270,6 +274,7 @@ def main(argv=None):
             **({"stackage": stackage_read} if stackage_read else {}),
             **({"cran": cran_read} if cran_read else {}),
             **({"sets": sets_read} if sets_read else {}),
+            **({"registries": registries_read} if registries_read else {}),
             **({"releases": releases_read} if releases_read else {}),
             **({"nixpkgs": nixpkgs_read} if nixpkgs_read else {}),
             **({"coverage": covered} if covered else {}),
