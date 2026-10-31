@@ -135,6 +135,7 @@ class Main(unittest.TestCase):
             mock.patch.object(releases, "update", return_value=None),
             mock.patch.object(cran, "read_indexes", side_effect=OSError("offline")),
             mock.patch("nixkeeper_versions.sets.update", return_value=None),
+            mock.patch("nixkeeper_versions.registries.update", return_value=None),
             mock.patch("sys.stderr", io.StringIO()),
         ):
             code = cli.main([d, *args])
@@ -216,6 +217,7 @@ class Main(unittest.TestCase):
                 mock.patch.object(releases, "update", return_value=None),
                 mock.patch.object(cran, "read_indexes", side_effect=OSError("offline")),
                 mock.patch("nixkeeper_versions.sets.update", return_value=None),
+                mock.patch("nixkeeper_versions.registries.update", return_value=None),
                 mock.patch("sys.stderr", io.StringIO()),
             ):
                 self.assertEqual(cli.main([d]), 1)

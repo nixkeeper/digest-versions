@@ -10,12 +10,15 @@ name: "Digest: nixpkgs' upstream versions"
 # second, the sites side by side: about 15 minutes more); the indexes of
 # nixpkgs' generated sets: Typst Universe, one request (data/typst.json.gz),
 # the Emacs archives, four (data/emacs.json.gz), Stackage LTS, two
-# (data/stackage.json.gz), CRAN and Bioconductor, five (data/cran.json.gz);
+# (data/stackage.json.gz), CRAN and Bioconductor, five (data/cran.json.gz),
+# five more sets' (data/sets.json.gz: extensions.gnome.org's 135 pages, one
+# a second); the gems and crates nixpkgs fetches from RubyGems and crates.io,
+# one request each (data/registries.json.gz: about 650, 11 minutes);
 # and Repology (data/projects.jsonl.gz): every outdated nixpkgs project, the
 # ones no longer outdated, and a fourteenth of all nixpkgs' projects, so each
 # is read weekly (nixkeeper_versions/cli.py), about 325 requests to its API a
 # run, one a second, at most 465 (under its 1,000 a day with two runs). The
-# run takes about 85 minutes, under its limit of three hours. The data branch
+# run takes about 110 minutes, under its limit of three hours. The data branch
 # is main plus one commit with the digest (scripts/data-branch.sh).
 
 on:
