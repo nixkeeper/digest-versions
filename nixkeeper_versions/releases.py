@@ -107,15 +107,33 @@ PAUSE = 1.0
 # queries failing in a row (GitHub isn't answering).
 MIN_POINTS = 50
 MAX_FAILURES_IN_A_ROW = 3
+# The bulk sets whose sources the digest still reads: which extension each
+# of gnomeExtensions' is (sets.py), which gem each of rubyPackages' is
+# (registries.py).
+SOURCES_READ = {"gnomeExtensions", "rubyPackages"}
+
+
+def set_of(attr):
+    """The set attr is in (its first part, rubyPackages_3_4 counting as
+    rubyPackages: nixkeeper_config.SET_ALIASES), or None at the top level."""
+    first = attr.split(".", 1)[0] if "." in attr else None
+    return nixkeeper_config.SET_ALIASES.get(first, first)
 
 
 def in_bulk_set(attr):
     """Whether attr is in a set nixkeeper compares with the set's own source
     (rPackages, ...) or doesn't version (darwin, ...): not checked here."""
-    first = attr.split(".", 1)[0] if "." in attr else None
+    first = set_of(attr)
     return first in nixkeeper_config.SET_PROFILES or first in (
         nixkeeper_config.UNVERSIONED_SETS
     )
+
+
+def evaluates(attr):
+    """Whether the weekly evaluation reads attr's src: outside the bulk sets,
+    and in the sets whose sources say which package each attribute is
+    (SOURCES_READ)."""
+    return not in_bulk_set(attr) or set_of(attr) in SOURCES_READ
 
 
 def evaluate(revision, attrs, sources=None):
@@ -138,6 +156,8 @@ def evaluate(revision, attrs, sources=None):
         for attr, src in nixpkgs.sources(part, revision).items():
             if sources is not None:
                 sources[attr] = src
+            if in_bulk_set(attr):
+                continue
             check, _ = inferred.forge_check(src, attr)
             if not check:
                 check, _ = inferred.pin_check(src, attr)
@@ -420,7 +440,7 @@ def update(directory, now, outdated_attrs=(), on_evaluated=None):
         print("Evaluating where packages come from (forge tags)...", file=sys.stderr)
         try:
             revision = nixpkgs.channel_revision()
-            attrs = [a for a in nixpkgs.load_index() if not in_bulk_set(a)]
+            attrs = [a for a in nixpkgs.load_index() if evaluates(a)]
             sources = {}
             checks = evaluate(revision, attrs, sources)
             if len(checks) < MIN_CHECKS:
