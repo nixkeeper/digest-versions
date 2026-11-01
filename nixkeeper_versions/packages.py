@@ -18,7 +18,8 @@ data/nixpkgs.json.gz:
 
 Every attribute of the index (nested sets included); "src" for those the
 weekly evaluation covers (outside the sets nixkeeper compares with their
-own sources: releases.in_bulk_set), with only the fields it has. A failed
+own sources, and in the few of them whose sources the digest reads:
+releases.evaluates), with only the fields it has. A failed
 read keeps the last file."""
 
 import gzip

@@ -57,6 +57,17 @@ class Keys(unittest.TestCase):
         self.assertTrue(releases.in_bulk_set("darwin.foo"))
         self.assertFalse(releases.in_bulk_set("python313Packages.requests"))
         self.assertFalse(releases.in_bulk_set("whisky"))
+        # rubyPackages for another Ruby: the same set.
+        self.assertTrue(releases.in_bulk_set("rubyPackages_3_4.rails"))
+        self.assertEqual(releases.set_of("rubyPackages_4_0.rails"), "rubyPackages")
+        self.assertIsNone(releases.set_of("whisky"))
+
+    def test_sources_read_in_the_sets_named_by_them(self):
+        # Their sources say which extension or gem each attribute is.
+        self.assertTrue(releases.evaluates("gnomeExtensions.dash-to-dock"))
+        self.assertTrue(releases.evaluates("rubyPackages_4_0.rails"))
+        self.assertTrue(releases.evaluates("whisky"))
+        self.assertFalse(releases.evaluates("haskellPackages.aeson"))
 
 
 class Newest(unittest.TestCase):
@@ -392,6 +403,22 @@ class Pins(unittest.TestCase):
         ):
             found = releases.evaluate("abc", ["_2048-in-terminal"])
         self.assertEqual(found, {"_2048-in-terminal": PIN})
+
+    def test_set_sources_kept_but_not_checked(self):
+        src = {
+            "gitRepoUrl": "https://github.com/micheleg/dash-to-dock.git",
+            "tag": "extensions.gnome.org-v102",
+            "version": "102",
+        }
+        sources = {}
+        with mock.patch.object(
+            releases.nixpkgs,
+            "sources",
+            return_value={"gnomeExtensions.dash-to-dock": src},
+        ):
+            found = releases.evaluate("abc", ["gnomeExtensions.dash-to-dock"], sources)
+        self.assertEqual(found, {})
+        self.assertEqual(sources, {"gnomeExtensions.dash-to-dock": src})
 
     def test_a_missing_commit_fails_only_its_own(self):
         # GitHub answers nothing for a query with a commit not in its
