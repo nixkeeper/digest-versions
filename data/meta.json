@@ -1,0 +1,89 @@
+{
+  "caughtUp": 1,
+  "caughtUpRead": 1,
+  "coverage": {
+    "attributes": 151889,
+    "forges": {
+      "forgejo": 332,
+      "github": 34946,
+      "gitlab": 1145
+    },
+    "noSource": 4308,
+    "pins": 5110,
+    "registries": {
+      "crates.io": 242,
+      "rubygems": 10
+    },
+    "repologyOnly": 23894,
+    "repologyOnlySources": 14064,
+    "sets": 81902
+  },
+  "cran": {
+    "annotation": 928,
+    "at": "2026-11-07T04:15:43+00:00",
+    "bioc": 2385,
+    "biocVersion": "3.23",
+    "cran": 25661,
+    "experiment": 434
+  },
+  "emacs": {
+    "at": "2026-11-07T04:15:43+00:00",
+    "gnu": 514,
+    "melpa": 6344,
+    "melpaStable": 3501,
+    "nongnu": 293
+  },
+  "format": 1,
+  "moved": {
+    "asked": 2,
+    "found": 0
+  },
+  "nixpkgs": {
+    "evaluatedAt": "2026-11-06T16:15:45+00:00",
+    "indexedAt": "2026-11-06T16:15:45+00:00",
+    "packages": 151889,
+    "sources": 68340
+  },
+  "outdated": 12219,
+  "outdatedAt": "2026-11-07T04:15:43+00:00",
+  "projects": 120370,
+  "registries": {
+    "at": "2026-11-07T04:15:43+00:00",
+    "registries": {
+      "crates.io": 218,
+      "rubygems": 428
+    }
+  },
+  "releases": {
+    "at": "2026-11-07T04:15:43+00:00",
+    "elsewhere": 1477,
+    "evaluatedAt": "2026-11-06T16:15:45+00:00",
+    "packages": 34946,
+    "pins": 5110,
+    "read": 27195
+  },
+  "requests": 110,
+  "rotation": {
+    "lapAt": "2026-11-04T16:15:50+00:00",
+    "next": "lisp:messagebox"
+  },
+  "sets": {
+    "at": "2026-11-07T04:15:43+00:00",
+    "sets": {
+      "akkuPackages": 430,
+      "azure-cli-extensions": 230,
+      "chickenPackages_5": 640,
+      "chickenPackages_6": 349,
+      "gnomeExtensions": 3433
+    }
+  },
+  "stackage": {
+    "at": "2026-11-07T04:15:43+00:00",
+    "packages": 3363,
+    "snapshot": "lts-24.66"
+  },
+  "typst": {
+    "at": "2026-11-07T04:15:43+00:00",
+    "packages": 1741
+  }
+}
